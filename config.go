@@ -12,6 +12,9 @@ type config struct {
 	Reference  referenceConfig  `json:"reference"`
 	Calculator calculatorConfig `json:"calculator"`
 	Density    string           `json:"density"`
+
+	SetupCompleted  bool   `json:"setup_completed"`
+	ExportDirectory string `json:"export_directory"`
 }
 
 type appearanceConfig struct {
@@ -49,6 +52,19 @@ type calculatorConfig struct {
 	Offset          bool `json:"offset"`
 	CompressorValue bool `json:"compressor_value"`
 	Warnings        bool `json:"warnings"`
+}
+
+func defaultExportDirectory() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "."
+	}
+
+	return filepath.Join(
+		home,
+		"Pictures",
+		"PC-Multitool",
+	)
 }
 
 func defaultConfig() config {
@@ -90,12 +106,15 @@ func defaultConfig() config {
 			Warnings:        true,
 		},
 
-		Density: "normal",
+		Density:         "normal",
+		SetupCompleted:  false,
+		ExportDirectory: defaultExportDirectory(),
 	}
 }
 
 func configPath() string {
 	dir, err := os.UserConfigDir()
+
 	if err == nil {
 		return filepath.Join(
 			dir,
@@ -105,6 +124,7 @@ func configPath() string {
 	}
 
 	home, err := os.UserHomeDir()
+
 	if err != nil {
 		return "pc-gear-calculator.json"
 	}
@@ -116,89 +136,153 @@ func configPath() string {
 }
 
 func loadConfig() config {
-	data, err := os.ReadFile(configPath())
+	data, err := os.ReadFile(
+		configPath(),
+	)
+
 	if err != nil {
 		return defaultConfig()
 	}
 
 	var raw map[string]json.RawMessage
 
-	if err := json.Unmarshal(data, &raw); err != nil {
+	if err := json.Unmarshal(
+		data,
+		&raw,
+	); err != nil {
 		return defaultConfig()
 	}
 
-	// Start with the real defaults, then overlay only settings
-	// that actually exist in the saved configuration.
-	cfg := defaultConfig()
+	cfg :=
+		defaultConfig()
 
 	if value, ok := raw["appearance"]; ok {
-		_ = json.Unmarshal(value, &cfg.Appearance)
+		_ = json.Unmarshal(
+			value,
+			&cfg.Appearance,
+		)
 	}
 
 	if value, ok := raw["layout"]; ok {
-		_ = json.Unmarshal(value, &cfg.Layout)
+		_ = json.Unmarshal(
+			value,
+			&cfg.Layout,
+		)
 	}
 
 	if value, ok := raw["reference"]; ok {
-		_ = json.Unmarshal(value, &cfg.Reference)
+		_ = json.Unmarshal(
+			value,
+			&cfg.Reference,
+		)
 	}
 
 	if value, ok := raw["calculator"]; ok {
-		_ = json.Unmarshal(value, &cfg.Calculator)
+		_ = json.Unmarshal(
+			value,
+			&cfg.Calculator,
+		)
 	}
 
 	if value, ok := raw["density"]; ok {
-		_ = json.Unmarshal(value, &cfg.Density)
+		_ = json.Unmarshal(
+			value,
+			&cfg.Density,
+		)
+	}
+
+	if value, ok := raw["setup_completed"]; ok {
+		_ = json.Unmarshal(
+			value,
+			&cfg.SetupCompleted,
+		)
+	}
+
+	if value, ok := raw["export_directory"]; ok {
+		_ = json.Unmarshal(
+			value,
+			&cfg.ExportDirectory,
+		)
 	}
 
 	return normalizeConfig(cfg)
 }
 
-func normalizeConfig(cfg config) config {
-	defaults := defaultConfig()
+func normalizeConfig(
+	cfg config,
+) config {
+
+	defaults :=
+		defaultConfig()
 
 	if cfg.Appearance.Theme == "" {
-		cfg.Appearance.Theme = defaults.Appearance.Theme
+		cfg.Appearance.Theme =
+			defaults.Appearance.Theme
 	}
 
 	if cfg.Appearance.Accent == "" {
-		cfg.Appearance.Accent = defaults.Appearance.Accent
+		cfg.Appearance.Accent =
+			defaults.Appearance.Accent
 	}
 
 	if cfg.Appearance.Background == "" {
-		cfg.Appearance.Background = defaults.Appearance.Background
+		cfg.Appearance.Background =
+			defaults.Appearance.Background
 	}
 
 	if cfg.Layout.Mode == "" {
-		cfg.Layout.Mode = defaults.Layout.Mode
+		cfg.Layout.Mode =
+			defaults.Layout.Mode
 	}
 
 	if cfg.Layout.ReferenceWidth == "" {
-		cfg.Layout.ReferenceWidth = defaults.Layout.ReferenceWidth
+		cfg.Layout.ReferenceWidth =
+			defaults.Layout.ReferenceWidth
 	}
 
 	if cfg.Layout.Order == "" {
-		cfg.Layout.Order = defaults.Layout.Order
+		cfg.Layout.Order =
+			defaults.Layout.Order
 	}
 
 	if cfg.Density == "" {
-		cfg.Density = defaults.Density
+		cfg.Density =
+			defaults.Density
+	}
+
+	if cfg.ExportDirectory == "" {
+		cfg.ExportDirectory =
+			defaults.ExportDirectory
 	}
 
 	return cfg
 }
 
 func saveConfig(cfg config) {
-	path := configPath()
+	path :=
+		configPath()
 
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(
+		filepath.Dir(path),
+		0o755,
+	); err != nil {
 		return
 	}
 
-	data, err := json.MarshalIndent(cfg, "", "    ")
+	data, err :=
+		json.MarshalIndent(
+			cfg,
+			"",
+			"    ",
+		)
+
 	if err != nil {
 		return
 	}
 
-	_ = os.WriteFile(path, data, 0o644)
+	_ = os.WriteFile(
+		path,
+		data,
+		0o644,
+	)
 }

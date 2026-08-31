@@ -13,7 +13,12 @@ import (
 type page int
 
 const (
-	pageMain page = iota
+	pageHome page = iota
+	pageSetup
+	pageMain
+	pageCrank
+	pageWheel
+	pageDyno
 	pageCustomize
 	pageAppearance
 	pageThemes
@@ -24,6 +29,7 @@ const (
 	pageCalculator
 	pageDensity
 	pageReset
+	pageAbout
 )
 
 type model struct {
@@ -39,6 +45,7 @@ type model struct {
 	theme  string
 	accent string
 
+	homeIndex         int
 	themeIndex        int
 	accentIndex       int
 	customIndex       int
@@ -49,6 +56,21 @@ type model struct {
 	calculatorIndex   int
 	densityIndex      int
 	resetIndex        int
+
+	crankIndex         int
+	crankLayoutIndex   int
+	crankCylinderInput textinput.Model
+
+	wheelIndex     int
+	wheelTireInput textinput.Model
+
+	dynoPoints     []dynoPoint
+	dynoFieldIndex int
+	dynoScroll     int
+	dynoFullscreen bool
+
+	setupIndex       int
+	setupExportInput textinput.Model
 }
 
 func newInput(value string) textinput.Model {
@@ -68,19 +90,42 @@ func initialModel() model {
 	_, _, offset := Calculate(teeth)
 	compressors := AutoCompressors(offset)
 
+	setupInput := textinput.New()
+	setupInput.SetWidth(60)
+	setupInput.CharLimit = 256
+	setupInput.Prompt = ""
+	setupInput.Blur()
+
 	m := model{
-		teethInput:      newInput(strconv.Itoa(teeth)),
-		compressorInput: newInput(strconv.Itoa(compressors)),
-		page:            pageMain,
-		width:           100,
-		height:          24,
-		cfg:             cfg,
-		theme:           cfg.Appearance.Theme,
-		accent:          cfg.Appearance.Accent,
+		teethInput:         newInput(strconv.Itoa(teeth)),
+		compressorInput:    newInput(strconv.Itoa(compressors)),
+		crankCylinderInput: crankInput(6),
+		wheelTireInput:     wheelInput(10),
+		dynoPoints:         initialDynoPoints(),
+		setupExportInput:   setupInput,
+
+		page:   pageHome,
+		width:  100,
+		height: 24,
+
+		cfg:    cfg,
+		theme:  cfg.Appearance.Theme,
+		accent: cfg.Appearance.Accent,
+
+		homeIndex:        0,
+		crankLayoutIndex: int(crankInline),
+		dynoFieldIndex:   0,
+		dynoScroll:       0,
+		dynoFullscreen:   false,
+		setupIndex:       0,
 	}
 
 	m.updateThemeIndex()
 	m.updateAccentIndex()
+
+	if !cfg.SetupCompleted {
+		m.page = pageSetup
+	}
 
 	return m
 }
@@ -100,11 +145,32 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.MouseClickMsg:
 		return m.handleMouse(msg)
 
+	case tea.MouseWheelMsg:
+		if m.page == pageDyno {
+			return m.handleDynoWheel(msg)
+		}
+		return m, nil
+
 	case tea.KeyPressMsg:
 		switch m.page {
 
+		case pageHome:
+			return m.updateHome(msg)
+
+		case pageSetup:
+			return m.updateSetup(msg)
+
 		case pageMain:
 			return m.updateMain(msg)
+
+		case pageCrank:
+			return m.updateCrank(msg)
+
+		case pageWheel:
+			return m.updateWheel(msg)
+
+		case pageDyno:
+			return m.updateDyno(msg)
 
 		case pageCustomize:
 			return m.updateCustomize(msg)
@@ -135,10 +201,227 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case pageReset:
 			return m.updateReset(msg)
+
+		case pageAbout:
+			switch msg.String() {
+
+			case "q", "ctrl+c":
+				return m, tea.Quit
+
+			case "esc":
+				m.page = pageHome
+				m.homeIndex = 5
+			}
+
+			return m, nil
 		}
 	}
 
 	return m, nil
+}
+
+// ─────────────────────────────────────────────────────────────
+// PC Multitool launcher
+// ─────────────────────────────────────────────────────────────
+
+func (m model) updateHome(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	items := []string{
+		"Gear Calculator",
+		"Crank Angle Calculator",
+		"Wheel Calculator",
+		"Dyno",
+		"Settings",
+		"About",
+		"Quit",
+	}
+
+	switch msg.String() {
+
+	case "q", "ctrl+c":
+		return m, tea.Quit
+
+	case "up":
+		m.homeIndex--
+
+		if m.homeIndex < 0 {
+			m.homeIndex = len(items) - 1
+		}
+
+	case "down":
+		m.homeIndex++
+
+		if m.homeIndex >= len(items) {
+			m.homeIndex = 0
+		}
+
+	case "enter":
+		switch m.homeIndex {
+
+		case 0:
+			m.stopEditing()
+			m.page = pageMain
+
+		case 1:
+			m.stopEditing()
+			m.crankLayoutIndex = int(crankInline)
+			m.crankCylinderInput.Blur()
+			m.page = pageCrank
+
+		case 2:
+			m.stopEditing()
+			m.wheelTireInput.Blur()
+			m.page = pageWheel
+
+		case 3:
+			m.stopEditing()
+			m.page = pageDyno
+			return m, m.dynoFocusField(0)
+
+		case 4:
+			m.stopEditing()
+			m.customIndex = 0
+			m.page = pageCustomize
+
+		case 5:
+			m.stopEditing()
+			m.page = pageAbout
+
+		case 6:
+			return m, tea.Quit
+		}
+	}
+
+	return m, nil
+}
+
+func (m model) viewHome() tea.View {
+	p := getPalette(
+		m.theme,
+		m.accent,
+	)
+
+	width := m.width
+	height := m.height
+
+	if width < 1 {
+		width = 1
+	}
+
+	if height < 1 {
+		height = 1
+	}
+
+	items := []string{
+		"Gear Calculator",
+		"Crank Angle Calculator",
+		"Wheel Calculator",
+		"Dyno",
+		"Settings",
+		"About",
+		"Quit",
+	}
+
+	titleStyle :=
+		lipgloss.NewStyle().
+			Bold(true).
+			Foreground(p.accent)
+
+	subtitleStyle :=
+		lipgloss.NewStyle().
+			Foreground(p.muted)
+
+	itemStyle :=
+		lipgloss.NewStyle().
+			Foreground(p.text)
+
+	selectedStyle :=
+		lipgloss.NewStyle().
+			Bold(true).
+			Foreground(p.accent)
+
+	var lines []string
+
+	lines = append(
+		lines,
+		"",
+		titleStyle.Render("PC MULTITOOL"),
+		"",
+		subtitleStyle.Render(
+			"Plane Crazy Engineering Tools",
+		),
+		"",
+	)
+
+	for i, item := range items {
+		prefix := "  "
+		style := itemStyle
+
+		if i == m.homeIndex {
+			prefix = "> "
+			style = selectedStyle
+		}
+
+		lines = append(
+			lines,
+			style.Render(prefix+item),
+		)
+	}
+
+	lines = append(
+		lines,
+		"",
+		subtitleStyle.Render(
+			"[↑↓] Select    [ENTER] Open    [Q] Quit",
+		),
+	)
+
+	content :=
+		strings.Join(
+			lines,
+			"\n",
+		)
+
+	boxWidth := 56
+
+	if boxWidth > width-4 {
+		boxWidth = width - 4
+	}
+
+	if boxWidth < 1 {
+		boxWidth = 1
+	}
+
+	box :=
+		lipgloss.NewStyle().
+			Width(boxWidth).
+			Padding(2, 4).
+			Foreground(p.text).
+			Render(content)
+
+	output :=
+		lipgloss.Place(
+			width,
+			height,
+			lipgloss.Center,
+			lipgloss.Center,
+			box,
+		)
+
+	view :=
+		tea.NewView(output)
+
+	view.AltScreen = true
+	view.MouseMode =
+		tea.MouseModeCellMotion
+
+	if m.cfg.Appearance.Background !=
+		"transparent" {
+
+		view.BackgroundColor =
+			p.background
+	}
+
+	return view
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -167,13 +450,15 @@ func (m model) updateMain(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	case "esc":
 		m.stopEditing()
+		m.page = pageHome
 		return m, nil
 	}
 
 	var cmd tea.Cmd
 
 	if m.teethInput.Focused() {
-		m.teethInput, cmd = m.teethInput.Update(msg)
+		m.teethInput, cmd =
+			m.teethInput.Update(msg)
 
 		if m.teethInput.Value() != "" {
 			m.updateAutomaticCompressor()
@@ -183,7 +468,8 @@ func (m model) updateMain(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 
 	if m.compressorInput.Focused() {
-		m.compressorInput, cmd = m.compressorInput.Update(msg)
+		m.compressorInput, cmd =
+			m.compressorInput.Update(msg)
 		return m, cmd
 	}
 
@@ -192,12 +478,16 @@ func (m model) updateMain(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 func (m *model) modeTeeth() {
 	m.compressorInput.Blur()
+	m.crankCylinderInput.Blur()
+	m.wheelTireInput.Blur()
 	m.teethInput.Focus()
 	m.teethInput.CursorEnd()
 }
 
 func (m *model) modeCompressors() {
 	m.teethInput.Blur()
+	m.crankCylinderInput.Blur()
+	m.wheelTireInput.Blur()
 	m.compressorInput.Focus()
 	m.compressorInput.CursorEnd()
 }
@@ -205,10 +495,21 @@ func (m *model) modeCompressors() {
 func (m *model) stopEditing() {
 	m.teethInput.Blur()
 	m.compressorInput.Blur()
+	m.crankCylinderInput.Blur()
+	m.wheelTireInput.Blur()
+	m.setupExportInput.Blur()
+
+	for i := range m.dynoPoints {
+		m.dynoPoints[i].SPSInput.Blur()
+		m.dynoPoints[i].TorqueInput.Blur()
+	}
 }
 
 func (m *model) updateAutomaticCompressor() {
-	teeth, err := strconv.Atoi(m.teethInput.Value())
+	teeth, err := strconv.Atoi(
+		m.teethInput.Value(),
+	)
+
 	if err != nil || teeth <= 0 {
 		return
 	}
@@ -216,12 +517,18 @@ func (m *model) updateAutomaticCompressor() {
 	_, _, offset := Calculate(teeth)
 
 	m.compressorInput.SetValue(
-		strconv.Itoa(AutoCompressors(offset)),
+		strconv.Itoa(
+			AutoCompressors(offset),
+		),
 	)
 }
 
 func (m model) currentTeeth() int {
-	value, err := strconv.Atoi(m.teethInput.Value())
+	value, err :=
+		strconv.Atoi(
+			m.teethInput.Value(),
+		)
+
 	if err != nil || value <= 0 {
 		return 6
 	}
@@ -230,7 +537,11 @@ func (m model) currentTeeth() int {
 }
 
 func (m model) currentCompressors() int {
-	value, err := strconv.Atoi(m.compressorInput.Value())
+	value, err :=
+		strconv.Atoi(
+			m.compressorInput.Value(),
+		)
+
 	if err != nil || value <= 0 {
 		return 1
 	}
@@ -294,18 +605,21 @@ func (m model) updateCustomize(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		case 4:
 			m.page = pageDensity
 			m.densityIndex =
-				densityIndexFromValue(m.cfg.Density)
+				densityIndexFromValue(
+					m.cfg.Density,
+				)
 
 		case 5:
 			m.page = pageReset
 			m.resetIndex = 1
 
 		case 6:
-			m.page = pageMain
+			m.page = pageHome
+			m.homeIndex = 4
 		}
 
 	case "esc":
-		m.page = pageMain
+		m.page = pageHome
 	}
 
 	return m, nil
@@ -360,6 +674,7 @@ func (m model) updateAppearance(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			} else {
 				m.cfg.Appearance.Background = "theme"
 			}
+
 			m.saveSettings()
 
 		case 3:
@@ -402,8 +717,12 @@ func (m model) updateThemes(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case "enter":
-		m.theme = themeKeys[m.themeIndex]
-		m.cfg.Appearance.Theme = m.theme
+		m.theme =
+			themeKeys[m.themeIndex]
+
+		m.cfg.Appearance.Theme =
+			m.theme
+
 		m.saveSettings()
 		m.page = pageAppearance
 
@@ -424,7 +743,8 @@ func (m model) updateAccents(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.accentIndex--
 
 		if m.accentIndex < 0 {
-			m.accentIndex = len(accentKeys) - 1
+			m.accentIndex =
+				len(accentKeys) - 1
 		}
 
 	case "down":
@@ -435,13 +755,19 @@ func (m model) updateAccents(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case "enter":
-		m.accent = accentKeys[m.accentIndex]
-		m.cfg.Appearance.Accent = m.accent
+		m.accent =
+			accentKeys[m.accentIndex]
+
+		m.cfg.Appearance.Accent =
+			m.accent
+
 		m.saveSettings()
-		m.page = pageAppearance
+		m.page =
+			pageAppearance
 
 	case "esc":
-		m.page = pageAppearance
+		m.page =
+			pageAppearance
 	}
 
 	return m, nil
@@ -452,13 +778,15 @@ func (m model) updateAccents(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 // ─────────────────────────────────────────────────────────────
 
 func (m model) updateTransparency(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	items := []string{
-		"Top Bar",
-		"Reference Panel",
-		"Calculator Panel",
-		"Bottom Bar",
-		"Back",
-	}
+
+	items :=
+		[]string{
+			"Top Bar",
+			"Reference Panel",
+			"Calculator Panel",
+			"Bottom Bar",
+			"Back",
+		}
 
 	switch msg.String() {
 
@@ -469,7 +797,8 @@ func (m model) updateTransparency(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.transparencyIndex--
 
 		if m.transparencyIndex < 0 {
-			m.transparencyIndex = len(items) - 1
+			m.transparencyIndex =
+				len(items) - 1
 		}
 
 	case "down":
@@ -480,6 +809,7 @@ func (m model) updateTransparency(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case "space", "enter":
+
 		switch m.transparencyIndex {
 
 		case 0:
@@ -499,14 +829,17 @@ func (m model) updateTransparency(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				!m.cfg.Appearance.BottomBarTransparent
 
 		case 4:
-			m.page = pageAppearance
+			m.page =
+				pageAppearance
+
 			return m, nil
 		}
 
 		m.saveSettings()
 
 	case "esc":
-		m.page = pageAppearance
+		m.page =
+			pageAppearance
 	}
 
 	return m, nil
@@ -517,17 +850,19 @@ func (m model) updateTransparency(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 // ─────────────────────────────────────────────────────────────
 
 func (m model) updateLayout(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	items := []string{
-		"Automatic",
-		"Calculator left",
-		"Calculator right",
-		"Calculator only",
-		"Reference only",
-		"Stacked",
-		"Reference width",
-		"Stacked order",
-		"Back",
-	}
+
+	items :=
+		[]string{
+			"Automatic",
+			"Calculator left",
+			"Calculator right",
+			"Calculator only",
+			"Reference only",
+			"Stacked",
+			"Reference width",
+			"Stacked order",
+			"Back",
+		}
 
 	switch msg.String() {
 
@@ -538,7 +873,8 @@ func (m model) updateLayout(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.layoutIndex--
 
 		if m.layoutIndex < 0 {
-			m.layoutIndex = len(items) - 1
+			m.layoutIndex =
+				len(items) - 1
 		}
 
 	case "down":
@@ -549,6 +885,7 @@ func (m model) updateLayout(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case "left":
+
 		switch m.layoutIndex {
 
 		case 6:
@@ -559,6 +896,7 @@ func (m model) updateLayout(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case "right":
+
 		switch m.layoutIndex {
 
 		case 6:
@@ -569,6 +907,7 @@ func (m model) updateLayout(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case "enter":
+
 		switch m.layoutIndex {
 
 		case 0:
@@ -596,86 +935,125 @@ func (m model) updateLayout(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.toggleOrder()
 
 		case 8:
-			m.page = pageCustomize
+			m.page =
+				pageCustomize
 		}
 
 	case "esc":
-		m.page = pageCustomize
+		m.page =
+			pageCustomize
 	}
 
 	return m, nil
 }
 
 func (m *model) setLayout(mode string) {
-	m.cfg.Layout.Mode = mode
+	m.cfg.Layout.Mode =
+		mode
+
 	m.saveSettings()
 }
 
 func (m *model) toggleOrder() {
-	if m.cfg.Layout.Order == "reference-first" {
-		m.cfg.Layout.Order = "calculator-first"
+
+	if m.cfg.Layout.Order ==
+		"reference-first" {
+
+		m.cfg.Layout.Order =
+			"calculator-first"
+
 	} else {
-		m.cfg.Layout.Order = "reference-first"
+
+		m.cfg.Layout.Order =
+			"reference-first"
 	}
 
 	m.saveSettings()
 }
 
 func (m *model) cycleReferenceWidth(delta int) {
-	values := []string{
-		"balanced",
-		"50",
-		"60",
-		"70",
-		"80",
-	}
+
+	values :=
+		[]string{
+			"balanced",
+			"50",
+			"60",
+			"70",
+			"80",
+		}
 
 	current := 0
 
 	for i, value := range values {
-		if value == m.cfg.Layout.ReferenceWidth {
-			current = i
+
+		if value ==
+			m.cfg.Layout.ReferenceWidth {
+
+			current =
+				i
+
 			break
 		}
 	}
 
-	current += delta
+	current +=
+		delta
 
 	for current < 0 {
-		current += len(values)
+		current +=
+			len(values)
 	}
 
-	current %= len(values)
+	current %=
+		len(values)
 
-	m.cfg.Layout.ReferenceWidth = values[current]
+	m.cfg.Layout.ReferenceWidth =
+		values[current]
+
 	m.saveSettings()
 }
 
-func (m model) panelWidths(width int) (int, int) {
-	left := int(float64(width) * 0.60)
+func (m model) panelWidths(
+	width int,
+) (int, int) {
+
+	left :=
+		int(
+			float64(width) *
+				0.60,
+		)
 
 	switch m.cfg.Layout.ReferenceWidth {
+
 	case "50":
-		left = width / 2
+		left =
+			width / 2
 
 	case "60":
-		left = int(float64(width) * 0.60)
+		left =
+			int(float64(width) * 0.60)
 
 	case "70":
-		left = int(float64(width) * 0.70)
+		left =
+			int(float64(width) * 0.70)
 
 	case "80":
-		left = int(float64(width) * 0.80)
+		left =
+			int(float64(width) * 0.80)
 
 	case "balanced":
-		left = int(float64(width) * 0.60)
+		left =
+			int(float64(width) * 0.60)
 	}
 
 	if left < 1 {
 		left = 1
 	}
 
-	right := width - left - 1
+	right :=
+		width -
+			left -
+			1
 
 	if right < 1 {
 		right = 1
@@ -685,15 +1063,14 @@ func (m model) panelWidths(width int) (int, int) {
 }
 
 func (m model) effectiveLayout() string {
-	mode := m.cfg.Layout.Mode
+
+	mode :=
+		m.cfg.Layout.Mode
 
 	if mode != "automatic" {
 		return mode
 	}
 
-	// Automatic should be predictable:
-	// use the default calculator-right layout on normal terminals,
-	// and simplify to calculator-only when the terminal is too narrow.
 	if m.width < 80 {
 		return "calculator-only"
 	}
@@ -706,16 +1083,18 @@ func (m model) effectiveLayout() string {
 // ─────────────────────────────────────────────────────────────
 
 func (m model) updateReference(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	items := []string{
-		"Enabled",
-		"Teeth",
-		"Full Angle",
-		"Half Angle",
-		"Offset",
-		"Compressor Value",
-		"Compressors",
-		"Back",
-	}
+
+	items :=
+		[]string{
+			"Enabled",
+			"Teeth",
+			"Full Angle",
+			"Half Angle",
+			"Offset",
+			"Compressor Value",
+			"Compressors",
+			"Back",
+		}
 
 	switch msg.String() {
 
@@ -726,7 +1105,8 @@ func (m model) updateReference(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.referenceIndex--
 
 		if m.referenceIndex < 0 {
-			m.referenceIndex = len(items) - 1
+			m.referenceIndex =
+				len(items) - 1
 		}
 
 	case "down":
@@ -769,14 +1149,17 @@ func (m model) updateReference(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				!m.cfg.Reference.Compressors
 
 		case 7:
-			m.page = pageCustomize
+			m.page =
+				pageCustomize
+
 			return m, nil
 		}
 
 		m.saveSettings()
 
 	case "esc":
-		m.page = pageCustomize
+		m.page =
+			pageCustomize
 	}
 
 	return m, nil
@@ -787,17 +1170,19 @@ func (m model) updateReference(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 // ─────────────────────────────────────────────────────────────
 
 func (m model) updateCalculator(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	items := []string{
-		"Enabled",
-		"Number of Teeth",
-		"Compressors",
-		"Full Angle",
-		"Half Angle",
-		"Offset",
-		"Compressor Value",
-		"Warnings",
-		"Back",
-	}
+
+	items :=
+		[]string{
+			"Enabled",
+			"Number of Teeth",
+			"Compressors",
+			"Full Angle",
+			"Half Angle",
+			"Offset",
+			"Compressor Value",
+			"Warnings",
+			"Back",
+		}
 
 	switch msg.String() {
 
@@ -808,7 +1193,8 @@ func (m model) updateCalculator(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.calculatorIndex--
 
 		if m.calculatorIndex < 0 {
-			m.calculatorIndex = len(items) - 1
+			m.calculatorIndex =
+				len(items) - 1
 		}
 
 	case "down":
@@ -855,14 +1241,17 @@ func (m model) updateCalculator(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				!m.cfg.Calculator.Warnings
 
 		case 8:
-			m.page = pageCustomize
+			m.page =
+				pageCustomize
+
 			return m, nil
 		}
 
 		m.saveSettings()
 
 	case "esc":
-		m.page = pageCustomize
+		m.page =
+			pageCustomize
 	}
 
 	return m, nil
@@ -873,12 +1262,14 @@ func (m model) updateCalculator(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 // ─────────────────────────────────────────────────────────────
 
 func (m model) updateDensity(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	items := []string{
-		"Normal",
-		"Compact",
-		"Minimal",
-		"Back",
-	}
+
+	items :=
+		[]string{
+			"Normal",
+			"Compact",
+			"Minimal",
+			"Back",
+		}
 
 	switch msg.String() {
 
@@ -889,7 +1280,8 @@ func (m model) updateDensity(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.densityIndex--
 
 		if m.densityIndex < 0 {
-			m.densityIndex = len(items) - 1
+			m.densityIndex =
+				len(items) - 1
 		}
 
 	case "down":
@@ -904,29 +1296,38 @@ func (m model) updateDensity(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		switch m.densityIndex {
 
 		case 0:
-			m.cfg.Density = "normal"
+			m.cfg.Density =
+				"normal"
 
 		case 1:
-			m.cfg.Density = "compact"
+			m.cfg.Density =
+				"compact"
 
 		case 2:
-			m.cfg.Density = "minimal"
+			m.cfg.Density =
+				"minimal"
 
 		case 3:
-			m.page = pageCustomize
+			m.page =
+				pageCustomize
+
 			return m, nil
 		}
 
 		m.saveSettings()
 
 	case "esc":
-		m.page = pageCustomize
+		m.page =
+			pageCustomize
 	}
 
 	return m, nil
 }
 
-func densityIndexFromValue(value string) int {
+func densityIndexFromValue(
+	value string,
+) int {
+
 	switch value {
 
 	case "compact":
@@ -944,21 +1345,28 @@ func densityIndexFromValue(value string) int {
 // Reset
 // ─────────────────────────────────────────────────────────────
 
-func (m model) updateReset(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+func (m model) updateReset(
+	msg tea.KeyPressMsg,
+) (tea.Model, tea.Cmd) {
 
 	switch msg.String() {
 
 	case "q", "ctrl+c":
 		return m, tea.Quit
 
-	case "up", "down", "left", "right":
+	case "up",
+		"down",
+		"left",
+		"right":
+
 		m.resetIndex ^= 1
 
 	case "enter":
 
 		if m.resetIndex == 0 {
 
-			m.cfg = defaultConfig()
+			m.cfg =
+				defaultConfig()
 
 			m.theme =
 				m.cfg.Appearance.Theme
@@ -972,10 +1380,12 @@ func (m model) updateReset(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.saveSettings()
 		}
 
-		m.page = pageCustomize
+		m.page =
+			pageCustomize
 
 	case "esc":
-		m.page = pageCustomize
+		m.page =
+			pageCustomize
 	}
 
 	return m, nil
@@ -986,34 +1396,50 @@ func (m model) updateReset(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 // ─────────────────────────────────────────────────────────────
 
 func (m *model) saveSettings() {
+
 	saveConfig(m.cfg)
 
-	m.theme = m.cfg.Appearance.Theme
-	m.accent = m.cfg.Appearance.Accent
+	m.theme =
+		m.cfg.Appearance.Theme
+
+	m.accent =
+		m.cfg.Appearance.Accent
 }
 
 func (m *model) updateThemeIndex() {
+
 	for i, key := range themeKeys {
 
-		if key == m.theme {
-			m.themeIndex = i
+		if key ==
+			m.theme {
+
+			m.themeIndex =
+				i
+
 			return
 		}
 	}
 
-	m.themeIndex = 0
+	m.themeIndex =
+		0
 }
 
 func (m *model) updateAccentIndex() {
+
 	for i, key := range accentKeys {
 
-		if key == m.accent {
-			m.accentIndex = i
+		if key ==
+			m.accent {
+
+			m.accentIndex =
+				i
+
 			return
 		}
 	}
 
-	m.accentIndex = 0
+	m.accentIndex =
+		0
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -1024,7 +1450,25 @@ func (m model) handleMouse(
 	msg tea.MouseClickMsg,
 ) (tea.Model, tea.Cmd) {
 
-	if msg.Button != tea.MouseLeft {
+	if m.page == pageSetup {
+		return m.handleSetupMouse(msg)
+	}
+
+	if m.page == pageCrank {
+		return m.handleCrankMouse(msg)
+	}
+
+	if m.page == pageWheel {
+		return m.handleWheelMouse(msg)
+	}
+
+	if m.page == pageDyno {
+		return m.handleDynoMouse(msg)
+	}
+
+	if msg.Button !=
+		tea.MouseLeft {
+
 		return m, nil
 	}
 
@@ -1032,66 +1476,78 @@ func (m model) handleMouse(
 		return m, nil
 	}
 
-	width := m.width
+	width :=
+		m.width
+
 	if width < 1 {
 		width = 1
 	}
 
-	mode := m.effectiveLayout()
+	mode :=
+		m.effectiveLayout()
 
-	// Reference-only has no editable calculator fields.
 	if mode == "reference-only" ||
 		!m.cfg.Calculator.Enabled {
 
 		m.stopEditing()
+
 		return m, nil
 	}
 
-	// ─────────────────────────────────────────────────────────
-	// Stacked
-	// ─────────────────────────────────────────────────────────
-
 	if mode == "stacked" {
 
-		contentHeight := m.height - 4
+		contentHeight :=
+			m.height - 4
+
 		if contentHeight < 1 {
 			contentHeight = 1
 		}
 
-		calculatorHeight := 5
+		calculatorHeight :=
+			5
 
 		if contentHeight < 8 {
-			calculatorHeight = contentHeight / 2
+			calculatorHeight =
+				contentHeight / 2
 		}
 
 		if calculatorHeight < 1 {
 			calculatorHeight = 1
 		}
 
-		referenceHeight := contentHeight - calculatorHeight
+		referenceHeight :=
+			contentHeight -
+				calculatorHeight
 
 		if referenceHeight < 1 {
 			referenceHeight = 1
 		}
 
-		calculatorTop := 2 + referenceHeight
+		calculatorTop :=
+			2 +
+				referenceHeight
 
-		if m.cfg.Layout.Order == "calculator-first" {
+		if m.cfg.Layout.Order ==
+			"calculator-first" {
+
 			calculatorTop = 2
 		}
 
-		fieldY := calculatorTop + 1
+		fieldY :=
+			calculatorTop + 1
 
-		// Horizontal calculator:
-		// [ TEETH ] [ COMPRESSORS ] [ FULL ] ...
-		if msg.Y == fieldY {
+		if msg.Y ==
+			fieldY {
 
 			x := 2
 
 			if m.cfg.Calculator.Teeth {
 
-				if msg.X >= x && msg.X < x+22 {
+				if msg.X >= x &&
+					msg.X < x+22 {
+
 					m.modeTeeth()
+
 					return m, nil
 				}
 
@@ -1100,28 +1556,29 @@ func (m model) handleMouse(
 
 			if m.cfg.Calculator.Compressors {
 
-				if msg.X >= x && msg.X < x+22 {
+				if msg.X >= x &&
+					msg.X < x+22 {
+
 					m.modeCompressors()
+
 					return m, nil
 				}
 			}
 		}
 
 		m.stopEditing()
+
 		return m, nil
 	}
-
-	// ─────────────────────────────────────────────────────────
-	// Calculator-only / narrow automatic layout
-	// ─────────────────────────────────────────────────────────
 
 	if mode == "calculator-only" ||
 		width < 80 {
 
-		// calculator panel starts immediately below the two-row top bar.
-		panelTop := 2
+		panelTop :=
+			2
 
-		if m.cfg.Density == "minimal" {
+		if m.cfg.Density ==
+			"minimal" {
 
 			if m.cfg.Calculator.Teeth &&
 				msg.X >= 2 &&
@@ -1129,17 +1586,18 @@ func (m model) handleMouse(
 				msg.Y == panelTop+2 {
 
 				m.modeTeeth()
+
 				return m, nil
 			}
 
 			if m.cfg.Calculator.Compressors {
 
-				y := panelTop + 4
+				y :=
+					panelTop + 4
 
-				if m.cfg.Calculator.Teeth {
-					y = panelTop + 4
-				} else {
-					y = panelTop + 2
+				if !m.cfg.Calculator.Teeth {
+					y =
+						panelTop + 2
 				}
 
 				if msg.X >= 2 &&
@@ -1147,13 +1605,15 @@ func (m model) handleMouse(
 					msg.Y == y {
 
 					m.modeCompressors()
+
 					return m, nil
 				}
 			}
 
 		} else {
 
-			y := panelTop + 3
+			y :=
+				panelTop + 3
 
 			if m.cfg.Calculator.Teeth {
 
@@ -1162,12 +1622,15 @@ func (m model) handleMouse(
 					msg.Y == y {
 
 					m.modeTeeth()
+
 					return m, nil
 				}
 
 				y += 2
 
-				if m.cfg.Density == "normal" {
+				if m.cfg.Density ==
+					"normal" {
+
 					y++
 				}
 			}
@@ -1179,33 +1642,33 @@ func (m model) handleMouse(
 					msg.Y == y {
 
 					m.modeCompressors()
+
 					return m, nil
 				}
 			}
 		}
 
 		m.stopEditing()
+
 		return m, nil
 	}
 
-	// ─────────────────────────────────────────────────────────
-	// Side-by-side layouts
-	// ─────────────────────────────────────────────────────────
+	leftWidth, _ :=
+		m.panelWidths(width)
 
-	leftWidth, _ := m.panelWidths(width)
+	calculatorLeft :=
+		mode == "calculator-left"
 
-	calculatorLeft := mode == "calculator-left"
-
-	calculatorX := leftWidth + 1
+	calculatorX :=
+		leftWidth + 1
 
 	if calculatorLeft {
 		calculatorX = 0
 	}
 
-	fieldX := calculatorX + 2
+	fieldX :=
+		calculatorX + 2
 
-	// These Y coordinates match the current viewMain() renderer,
-	// which has horizontal panel padding but no vertical padding.
 	var teethY int
 	var compressorsY int
 
@@ -1219,12 +1682,11 @@ func (m model) handleMouse(
 		teethY = 5
 		compressorsY = 7
 
-	default: // normal
+	default:
 		teethY = 5
 		compressorsY = 8
 	}
 
-	// Give the input boxes a little generous horizontal hit area.
 	const fieldWidth = 24
 
 	if m.cfg.Calculator.Teeth &&
@@ -1233,6 +1695,7 @@ func (m model) handleMouse(
 		msg.Y == teethY {
 
 		m.modeTeeth()
+
 		return m, nil
 	}
 
@@ -1242,10 +1705,10 @@ func (m model) handleMouse(
 		msg.Y == compressorsY {
 
 		m.modeCompressors()
+
 		return m, nil
 	}
 
-	// Clicking anywhere that isn't an input removes focus.
 	m.stopEditing()
 
 	return m, nil
@@ -1258,6 +1721,21 @@ func (m model) handleMouse(
 func (m model) View() tea.View {
 
 	switch m.page {
+
+	case pageHome:
+		return m.viewHome()
+
+	case pageSetup:
+		return m.viewSetup()
+
+	case pageCrank:
+		return m.viewCrank()
+
+	case pageWheel:
+		return m.viewWheel()
+
+	case pageDyno:
+		return m.viewDyno()
 
 	case pageCustomize:
 		return m.viewCustomize()
@@ -1289,6 +1767,9 @@ func (m model) View() tea.View {
 	case pageReset:
 		return m.viewReset()
 
+	case pageAbout:
+		return m.viewAbout()
+
 	default:
 		return m.viewMain()
 	}
@@ -1305,8 +1786,11 @@ func (m model) renderMenu(
 	p palette,
 ) tea.View {
 
-	width := m.width
-	height := m.height
+	width :=
+		m.width
+
+	height :=
+		m.height
 
 	if width < 1 {
 		width = 1
@@ -1318,28 +1802,34 @@ func (m model) renderMenu(
 
 	var lines []string
 
-	lines = append(
-		lines,
-		lipgloss.NewStyle().
-			Bold(true).
-			Foreground(p.accent).
-			Render(title),
-		"",
-	)
+	lines =
+		append(
+			lines,
+			lipgloss.NewStyle().
+				Bold(true).
+				Foreground(p.accent).
+				Render(title),
+			"",
+		)
 
 	for i, item := range items {
 
-		prefix := "  "
+		prefix :=
+			"  "
 
-		if i == selected {
-			prefix = "> "
+		if i ==
+			selected {
+
+			prefix =
+				"> "
 		}
 
 		style :=
 			lipgloss.NewStyle().
 				Foreground(p.text)
 
-		if i == selected {
+		if i ==
+			selected {
 
 			style =
 				style.
@@ -1348,28 +1838,34 @@ func (m model) renderMenu(
 					Bold(true)
 		}
 
-		lines = append(
-			lines,
-			style.Render(prefix+item),
-		)
+		lines =
+			append(
+				lines,
+				style.Render(
+					prefix+item,
+				),
+			)
 	}
 
-	lines = append(
-		lines,
-		"",
-		lipgloss.NewStyle().
-			Foreground(p.muted).
-			Render(
-				"[↑↓] Select    [ENTER] Choose    [ESC] Back",
-			),
-	)
+	lines =
+		append(
+			lines,
+			"",
+			lipgloss.NewStyle().
+				Foreground(p.muted).
+				Render(
+					"[↑↓] Select    [ENTER] Choose    [ESC] Back",
+				),
+		)
 
 	box :=
 		lipgloss.NewStyle().
 			Width(62).
 			Padding(2, 3).
 			Background(p.panel).
-			Border(lipgloss.NormalBorder()).
+			Border(
+				lipgloss.NormalBorder(),
+			).
 			BorderForeground(p.border).
 			Render(
 				strings.Join(
@@ -1390,12 +1886,17 @@ func (m model) renderMenu(
 	view :=
 		tea.NewView(output)
 
-	view.AltScreen = true
+	view.AltScreen =
+		true
+
 	view.MouseMode =
 		tea.MouseModeCellMotion
 
-	if m.cfg.Appearance.Background != "transparent" {
-		view.BackgroundColor = p.background
+	if m.cfg.Appearance.Background !=
+		"transparent" {
+
+		view.BackgroundColor =
+			p.background
 	}
 
 	return view
@@ -1407,10 +1908,11 @@ func (m model) renderMenu(
 
 func (m model) viewCustomize() tea.View {
 
-	p := getPalette(
-		m.theme,
-		m.accent,
-	)
+	p :=
+		getPalette(
+			m.theme,
+			m.accent,
+		)
 
 	return m.renderMenu(
 		"CUSTOMIZATION",
@@ -1430,10 +1932,11 @@ func (m model) viewCustomize() tea.View {
 
 func (m model) viewAppearance() tea.View {
 
-	p := getPalette(
-		m.theme,
-		m.accent,
-	)
+	p :=
+		getPalette(
+			m.theme,
+			m.accent,
+		)
 
 	background :=
 		"Theme"
@@ -1472,10 +1975,11 @@ func (m model) viewAppearance() tea.View {
 
 func (m model) viewThemes() tea.View {
 
-	p := getPalette(
-		m.theme,
-		m.accent,
-	)
+	p :=
+		getPalette(
+			m.theme,
+			m.accent,
+		)
 
 	return m.renderMenu(
 		"THEME",
@@ -1487,10 +1991,11 @@ func (m model) viewThemes() tea.View {
 
 func (m model) viewAccents() tea.View {
 
-	p := getPalette(
-		m.theme,
-		m.accent,
-	)
+	p :=
+		getPalette(
+			m.theme,
+			m.accent,
+		)
 
 	return m.renderMenu(
 		"ACCENT COLOR",
@@ -1502,10 +2007,11 @@ func (m model) viewAccents() tea.View {
 
 func (m model) viewTransparency() tea.View {
 
-	p := getPalette(
-		m.theme,
-		m.accent,
-	)
+	p :=
+		getPalette(
+			m.theme,
+			m.accent,
+		)
 
 	return m.renderMenu(
 		"PANEL TRANSPARENCY",
@@ -1539,10 +2045,11 @@ func (m model) viewTransparency() tea.View {
 
 func (m model) viewLayout() tea.View {
 
-	p := getPalette(
-		m.theme,
-		m.accent,
-	)
+	p :=
+		getPalette(
+			m.theme,
+			m.accent,
+		)
 
 	mode :=
 		m.cfg.Layout.Mode
@@ -1604,10 +2111,11 @@ func (m model) viewLayout() tea.View {
 
 func (m model) viewReference() tea.View {
 
-	p := getPalette(
-		m.theme,
-		m.accent,
-	)
+	p :=
+		getPalette(
+			m.theme,
+			m.accent,
+		)
 
 	return m.renderMenu(
 		"REFERENCE CHART",
@@ -1656,10 +2164,11 @@ func (m model) viewReference() tea.View {
 
 func (m model) viewCalculator() tea.View {
 
-	p := getPalette(
-		m.theme,
-		m.accent,
-	)
+	p :=
+		getPalette(
+			m.theme,
+			m.accent,
+		)
 
 	return m.renderMenu(
 		"CALCULATOR",
@@ -1713,27 +2222,31 @@ func (m model) viewCalculator() tea.View {
 
 func (m model) viewDensity() tea.View {
 
-	p := getPalette(
-		m.theme,
-		m.accent,
-	)
+	p :=
+		getPalette(
+			m.theme,
+			m.accent,
+		)
 
 	return m.renderMenu(
 		"DENSITY",
 		[]string{
 			"Normal" +
 				selectedSuffix(
-					m.cfg.Density == "normal",
+					m.cfg.Density ==
+						"normal",
 				),
 
 			"Compact" +
 				selectedSuffix(
-					m.cfg.Density == "compact",
+					m.cfg.Density ==
+						"compact",
 				),
 
 			"Minimal" +
 				selectedSuffix(
-					m.cfg.Density == "minimal",
+					m.cfg.Density ==
+						"minimal",
 				),
 
 			"Back",
@@ -1745,10 +2258,11 @@ func (m model) viewDensity() tea.View {
 
 func (m model) viewReset() tea.View {
 
-	p := getPalette(
-		m.theme,
-		m.accent,
-	)
+	p :=
+		getPalette(
+			m.theme,
+			m.accent,
+		)
 
 	return m.renderMenu(
 		"RESET TO DEFAULTS",
@@ -1762,18 +2276,133 @@ func (m model) viewReset() tea.View {
 }
 
 // ─────────────────────────────────────────────────────────────
+// About
+// ─────────────────────────────────────────────────────────────
+
+func (m model) viewAbout() tea.View {
+
+	p :=
+		getPalette(
+			m.theme,
+			m.accent,
+		)
+
+	width :=
+		m.width
+
+	height :=
+		m.height
+
+	if width < 1 {
+		width = 1
+	}
+
+	if height < 1 {
+		height = 1
+	}
+
+	titleStyle :=
+		lipgloss.NewStyle().
+			Bold(true).
+			Foreground(p.accent)
+
+	textStyle :=
+		lipgloss.NewStyle().
+			Foreground(p.text)
+
+	mutedStyle :=
+		lipgloss.NewStyle().
+			Foreground(p.muted)
+
+	content :=
+		strings.Join(
+			[]string{
+				titleStyle.Render(
+					"PC MULTITOOL",
+				),
+				"",
+				textStyle.Render(
+					"Plane Crazy Engineering Tools",
+				),
+				"",
+				textStyle.Render(
+					"Made by Xad0",
+				),
+				"",
+				textStyle.Render(
+					"Version 0.3",
+				),
+				"",
+				mutedStyle.Render(
+					"[ESC] Back",
+				),
+			},
+			"\n",
+		)
+
+	box :=
+		lipgloss.NewStyle().
+			Width(42).
+			Padding(2, 4).
+			Foreground(p.text)
+
+	if m.cfg.Appearance.Background !=
+		"transparent" {
+
+		box =
+			box.Background(
+				p.panel,
+			)
+	}
+
+	rendered :=
+		box.Render(content)
+
+	output :=
+		lipgloss.Place(
+			width,
+			height,
+			lipgloss.Center,
+			lipgloss.Center,
+			rendered,
+		)
+
+	view :=
+		tea.NewView(output)
+
+	view.AltScreen =
+		true
+
+	view.MouseMode =
+		tea.MouseModeCellMotion
+
+	if m.cfg.Appearance.Background !=
+		"transparent" {
+
+		view.BackgroundColor =
+			p.background
+	}
+
+	return view
+}
+
+// ─────────────────────────────────────────────────────────────
 // Main rendering
 // ─────────────────────────────────────────────────────────────
 
 func (m model) viewMain() tea.View {
 
-	p := getPalette(
-		m.theme,
-		m.accent,
-	)
+	p :=
+		getPalette(
+			m.theme,
+			m.accent,
+		)
 
-	width := m.width
-	height := m.height
+	width :=
+		m.width
+
+	height :=
+		m.height
 
 	if width < 1 {
 		width = 1
@@ -1789,7 +2418,9 @@ func (m model) viewMain() tea.View {
 	compressors :=
 		m.currentCompressors()
 
-	full, half, offset :=
+	full,
+		half,
+		offset :=
 		Calculate(teeth)
 
 	compressorValue :=
@@ -1835,10 +2466,6 @@ func (m model) viewMain() tea.View {
 				lipgloss.NormalBorder(),
 			).
 			BorderForeground(p.accent)
-
-	// ─────────────────────────────────────────────────────────
-	// Top bar
-	// ─────────────────────────────────────────────────────────
 
 	titleText :=
 		"PC GEAR CALCULATOR"
@@ -1955,10 +2582,6 @@ func (m model) viewMain() tea.View {
 			topSecond,
 		)
 
-	// ─────────────────────────────────────────────────────────
-	// Reference
-	// ─────────────────────────────────────────────────────────
-
 	var reference strings.Builder
 
 	if m.cfg.Reference.Enabled {
@@ -1969,7 +2592,9 @@ func (m model) viewMain() tea.View {
 			),
 		)
 
-		reference.WriteString("\n\n")
+		reference.WriteString(
+			"\n\n",
+		)
 
 		columns :=
 			referenceColumns(
@@ -1996,7 +2621,9 @@ func (m model) viewMain() tea.View {
 
 			for n := 4; n <= 20; n++ {
 
-				f, h, o :=
+				f,
+					h,
+					o :=
 					Calculate(n)
 
 				c :=
@@ -2023,15 +2650,13 @@ func (m model) viewMain() tea.View {
 				)
 
 				if n != 20 {
-					reference.WriteString("\n")
+					reference.WriteString(
+						"\n",
+					)
 				}
 			}
 		}
 	}
-
-	// ─────────────────────────────────────────────────────────
-	// Calculator
-	// ─────────────────────────────────────────────────────────
 
 	var calculatorLines []string
 
@@ -2046,6 +2671,7 @@ func (m model) viewMain() tea.View {
 			)
 
 		if m.cfg.Density != "minimal" {
+
 			calculatorLines =
 				append(
 					calculatorLines,
@@ -2137,12 +2763,8 @@ func (m model) viewMain() tea.View {
 				calculatorLines =
 					append(
 						calculatorLines,
-						labelStyle.Render(
-							label,
-						),
-						valueStyle.Render(
-							value,
-						),
+						labelStyle.Render(label),
+						valueStyle.Render(value),
 					)
 
 				addGap()
@@ -2162,7 +2784,7 @@ func (m model) viewMain() tea.View {
 			appendValue(
 				label,
 				fmt.Sprintf(
-					"%.6f°",
+					"%.3f°",
 					full,
 				),
 			)
@@ -2182,7 +2804,7 @@ func (m model) viewMain() tea.View {
 			appendValue(
 				label,
 				fmt.Sprintf(
-					"%.6f°",
+					"%.3f°",
 					half,
 				),
 			)
@@ -2276,10 +2898,6 @@ func (m model) viewMain() tea.View {
 	mode :=
 		m.effectiveLayout()
 
-	// ─────────────────────────────────────────────────────────
-	// Both disabled
-	// ─────────────────────────────────────────────────────────
-
 	if !m.cfg.Reference.Enabled &&
 		!m.cfg.Calculator.Enabled {
 
@@ -2302,10 +2920,6 @@ func (m model) viewMain() tea.View {
 		)
 	}
 
-	// ─────────────────────────────────────────────────────────
-	// Calculator only
-	// ─────────────────────────────────────────────────────────
-
 	if mode == "calculator-only" ||
 		!m.cfg.Reference.Enabled {
 
@@ -2319,10 +2933,6 @@ func (m model) viewMain() tea.View {
 			m.cfg.Appearance.CalculatorTransparent,
 		)
 	}
-
-	// ─────────────────────────────────────────────────────────
-	// Reference only
-	// ─────────────────────────────────────────────────────────
 
 	if mode == "reference-only" ||
 		!m.cfg.Calculator.Enabled {
@@ -2338,16 +2948,10 @@ func (m model) viewMain() tea.View {
 		)
 	}
 
-	// ─────────────────────────────────────────────────────────
-	// Stacked
-	// ─────────────────────────────────────────────────────────
-
 	if mode == "stacked" {
 
-		// Keep the reference large enough to see most/all
-		// of the table, while reserving four lines for the
-		// horizontal calculator.
-		calculatorHeight := 5
+		calculatorHeight :=
+			5
 
 		if contentHeight < 8 {
 			calculatorHeight =
@@ -2359,7 +2963,8 @@ func (m model) viewMain() tea.View {
 		}
 
 		referenceHeight :=
-			contentHeight - calculatorHeight
+			contentHeight -
+				calculatorHeight
 
 		if referenceHeight < 1 {
 			referenceHeight = 1
@@ -2420,11 +3025,8 @@ func (m model) viewMain() tea.View {
 		)
 	}
 
-	// ─────────────────────────────────────────────────────────
-	// Side by side
-	// ─────────────────────────────────────────────────────────
-
-	leftWidth, rightWidth :=
+	leftWidth,
+		rightWidth :=
 		m.panelWidths(width)
 
 	leftText :=
@@ -2453,8 +3055,10 @@ func (m model) viewMain() tea.View {
 		rightTransparent =
 			m.cfg.Appearance.ReferenceTransparent
 
-		leftWidth, rightWidth =
-			rightWidth, leftWidth
+		leftWidth,
+			rightWidth =
+			rightWidth,
+			leftWidth
 	}
 
 	leftPanel :=
@@ -2533,10 +3137,12 @@ func (m model) renderStackedCalculator(
 	labelStyle lipgloss.Style,
 	valueStyle lipgloss.Style,
 ) string {
-	title := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(p.accent).
-		Render("CALCULATOR")
+
+	title :=
+		lipgloss.NewStyle().
+			Bold(true).
+			Foreground(p.accent).
+			Render("CALCULATOR")
 
 	type calcItem struct {
 		label string
@@ -2548,55 +3154,101 @@ func (m model) renderStackedCalculator(
 	var items []calcItem
 
 	if m.cfg.Calculator.Teeth {
-		items = append(items, calcItem{
-			label: "TEETH",
-			input: true,
-			kind:  "teeth",
-		})
+
+		items =
+			append(
+				items,
+				calcItem{
+					label: "TEETH",
+					input: true,
+					kind:  "teeth",
+				},
+			)
 	}
 
 	if m.cfg.Calculator.Compressors {
-		items = append(items, calcItem{
-			label: "COMPRESSORS",
-			input: true,
-			kind:  "compressors",
-		})
+
+		items =
+			append(
+				items,
+				calcItem{
+					label: "COMPRESSORS",
+					input: true,
+					kind:  "compressors",
+				},
+			)
 	}
 
 	if m.cfg.Calculator.FullAngle {
-		items = append(items, calcItem{
-			label: "FULL",
-			value: fmt.Sprintf("%.6f°", full),
-		})
+
+		items =
+			append(
+				items,
+				calcItem{
+					label: "FULL",
+					value: fmt.Sprintf(
+						"%.3f°",
+						full,
+					),
+				},
+			)
 	}
 
 	if m.cfg.Calculator.HalfAngle {
-		items = append(items, calcItem{
-			label: "HALF",
-			value: fmt.Sprintf("%.6f°", half),
-		})
+
+		items =
+			append(
+				items,
+				calcItem{
+					label: "HALF",
+					value: fmt.Sprintf(
+						"%.3f°",
+						half,
+					),
+				},
+			)
 	}
 
 	if m.cfg.Calculator.Offset {
-		items = append(items, calcItem{
-			label: "OFFSET",
-			value: fmt.Sprintf("%.8f", offset),
-		})
+
+		items =
+			append(
+				items,
+				calcItem{
+					label: "OFFSET",
+					value: fmt.Sprintf(
+						"%.8f",
+						offset,
+					),
+				},
+			)
 	}
 
 	if m.cfg.Calculator.CompressorValue {
-		items = append(items, calcItem{
-			label: "COMP",
-			value: fmt.Sprintf("%.3f", roundedValue),
-		})
+
+		items =
+			append(
+				items,
+				calcItem{
+					label: "COMP",
+					value: fmt.Sprintf(
+						"%.3f",
+						roundedValue,
+					),
+				},
+			)
 	}
 
 	if len(items) == 0 {
-		content := lipgloss.JoinVertical(
-			lipgloss.Left,
-			title,
-			labelStyle.Render("No calculator elements enabled."),
-		)
+
+		content :=
+			lipgloss.JoinVertical(
+				lipgloss.Left,
+				title,
+				labelStyle.Render(
+					"No calculator elements enabled.",
+				),
+			)
 
 		return m.renderPanel(
 			content,
@@ -2610,79 +3262,122 @@ func (m model) renderStackedCalculator(
 	var blocks []string
 
 	for _, item := range items {
+
 		var value string
 
 		switch item.kind {
+
 		case "teeth":
+
 			if m.teethInput.Focused() {
-				value = focusedFieldStyle.Render(
-					m.teethInput.View(),
-				)
+
+				value =
+					focusedFieldStyle.Render(
+						m.teethInput.View(),
+					)
+
 			} else {
-				value = fieldStyle.Render(
-					m.teethInput.Value(),
-				)
+
+				value =
+					fieldStyle.Render(
+						m.teethInput.Value(),
+					)
 			}
 
 		case "compressors":
+
 			if m.compressorInput.Focused() {
-				value = focusedFieldStyle.Render(
-					m.compressorInput.View(),
-				)
+
+				value =
+					focusedFieldStyle.Render(
+						m.compressorInput.View(),
+					)
+
 			} else {
-				value = fieldStyle.Render(
-					m.compressorInput.Value(),
-				)
+
+				value =
+					fieldStyle.Render(
+						m.compressorInput.Value(),
+					)
 			}
 
 		default:
-			value = valueStyle.Render(item.value)
+
+			value =
+				valueStyle.Render(
+					item.value,
+				)
 		}
 
-		block := lipgloss.JoinVertical(
-			lipgloss.Left,
-			lipgloss.NewStyle().
-				Bold(true).
-				Foreground(p.muted).
-				Render(item.label),
-			value,
-		)
+		block :=
+			lipgloss.JoinVertical(
+				lipgloss.Left,
+				lipgloss.NewStyle().
+					Bold(true).
+					Foreground(p.muted).
+					Render(item.label),
+				value,
+			)
 
-		blocks = append(blocks, block)
+		blocks =
+			append(
+				blocks,
+				block,
+			)
 	}
 
-	row := lipgloss.JoinHorizontal(
-		lipgloss.Top,
-		blocks...,
-	)
+	row :=
+		lipgloss.JoinHorizontal(
+			lipgloss.Top,
+			blocks...,
+		)
 
-	content := lipgloss.JoinVertical(
-		lipgloss.Left,
-		title,
-		row,
-	)
+	content :=
+		lipgloss.JoinVertical(
+			lipgloss.Left,
+			title,
+			row,
+		)
 
 	if m.cfg.Calculator.Warnings {
+
 		switch {
+
 		case compressorValue < 0:
-			content = lipgloss.JoinVertical(
-				lipgloss.Left,
-				content,
-				lipgloss.NewStyle().
-					Foreground(lipgloss.Color("#f38ba8")).
-					Bold(true).
-					Render("OUT OF RANGE"),
-			)
+
+			content =
+				lipgloss.JoinVertical(
+					lipgloss.Left,
+					content,
+					lipgloss.NewStyle().
+						Foreground(
+							lipgloss.Color(
+								"#f38ba8",
+							),
+						).
+						Bold(true).
+						Render(
+							"OUT OF RANGE",
+						),
+				)
 
 		case compressorValue > 1:
-			content = lipgloss.JoinVertical(
-				lipgloss.Left,
-				content,
-				lipgloss.NewStyle().
-					Foreground(lipgloss.Color("#f9e2af")).
-					Bold(true).
-					Render("MORE COMPRESSORS NEEDED"),
-			)
+
+			content =
+				lipgloss.JoinVertical(
+					lipgloss.Left,
+					content,
+					lipgloss.NewStyle().
+						Foreground(
+							lipgloss.Color(
+								"#f9e2af",
+							),
+						).
+						Bold(true).
+						Render(
+							"MORE COMPRESSORS NEEDED",
+						),
+				)
 		}
 	}
 
@@ -2725,12 +3420,17 @@ func (m model) renderMainWithBottom(
 	view :=
 		tea.NewView(output)
 
-	view.AltScreen = true
+	view.AltScreen =
+		true
+
 	view.MouseMode =
 		tea.MouseModeCellMotion
 
-	if m.cfg.Appearance.Background != "transparent" {
-		view.BackgroundColor = p.background
+	if m.cfg.Appearance.Background !=
+		"transparent" {
+
+		view.BackgroundColor =
+			p.background
 	}
 
 	return view
@@ -2752,10 +3452,6 @@ func (m model) renderPanel(
 		height = 1
 	}
 
-	// Width passed into this helper represents the TOTAL rendered
-	// panel width. Account for the panel's horizontal padding so
-	// the rendered result does not grow beyond the space reserved
-	// for it by the layout code.
 	style :=
 		lipgloss.NewStyle().
 			Width(width).
@@ -2768,7 +3464,9 @@ func (m model) renderPanel(
 			"transparent" {
 
 		style =
-			style.Background(p.panel)
+			style.Background(
+				p.panel,
+			)
 	}
 
 	return style.Render(content)
@@ -2812,12 +3510,17 @@ func (m model) renderSinglePanel(
 	view :=
 		tea.NewView(output)
 
-	view.AltScreen = true
+	view.AltScreen =
+		true
+
 	view.MouseMode =
 		tea.MouseModeCellMotion
 
-	if m.cfg.Appearance.Background != "transparent" {
-		view.BackgroundColor = p.background
+	if m.cfg.Appearance.Background !=
+		"transparent" {
+
+		view.BackgroundColor =
+			p.background
 	}
 
 	return view
@@ -2842,7 +3545,9 @@ func (m model) renderBottomBar(
 			"transparent" {
 
 		style =
-			style.Background(p.surface)
+			style.Background(
+				p.surface,
+			)
 	}
 
 	return style.Render(text)
@@ -2871,32 +3576,50 @@ func referenceColumns(
 
 	if cfg.Teeth {
 		columns =
-			append(columns, refTeeth)
+			append(
+				columns,
+				refTeeth,
+			)
 	}
 
 	if cfg.FullAngle {
 		columns =
-			append(columns, refFull)
+			append(
+				columns,
+				refFull,
+			)
 	}
 
 	if cfg.HalfAngle {
 		columns =
-			append(columns, refHalf)
+			append(
+				columns,
+				refHalf,
+			)
 	}
 
 	if cfg.Offset {
 		columns =
-			append(columns, refOffset)
+			append(
+				columns,
+				refOffset,
+			)
 	}
 
 	if cfg.CompressorValue {
 		columns =
-			append(columns, refCompValue)
+			append(
+				columns,
+				refCompValue,
+			)
 	}
 
 	if cfg.Compressors {
 		columns =
-			append(columns, refCompressors)
+			append(
+				columns,
+				refCompressors,
+			)
 	}
 
 	return columns
@@ -2913,28 +3636,52 @@ func buildReferenceHeader(
 		switch column {
 
 		case refTeeth:
+
 			parts =
-				append(parts, "TEETH")
+				append(
+					parts,
+					"TEETH",
+				)
 
 		case refFull:
+
 			parts =
-				append(parts, "FULL ANGLE")
+				append(
+					parts,
+					"FULL ANGLE",
+				)
 
 		case refHalf:
+
 			parts =
-				append(parts, "HALF ANGLE")
+				append(
+					parts,
+					"HALF ANGLE",
+				)
 
 		case refOffset:
+
 			parts =
-				append(parts, "OFFSET")
+				append(
+					parts,
+					"OFFSET",
+				)
 
 		case refCompValue:
+
 			parts =
-				append(parts, "COMP VALUE")
+				append(
+					parts,
+					"COMP VALUE",
+				)
 
 		case refCompressors:
+
 			parts =
-				append(parts, "COMPRESSORS")
+				append(
+					parts,
+					"COMPRESSORS",
+				)
 		}
 	}
 
@@ -2955,28 +3702,52 @@ func buildReferenceDivider(
 		switch column {
 
 		case refTeeth:
+
 			parts =
-				append(parts, "─────")
+				append(
+					parts,
+					"─────",
+				)
 
 		case refFull:
+
 			parts =
-				append(parts, "──────────")
+				append(
+					parts,
+					"──────────",
+				)
 
 		case refHalf:
+
 			parts =
-				append(parts, "──────────")
+				append(
+					parts,
+					"──────────",
+				)
 
 		case refOffset:
+
 			parts =
-				append(parts, "────────")
+				append(
+					parts,
+					"────────",
+				)
 
 		case refCompValue:
+
 			parts =
-				append(parts, "──────────")
+				append(
+					parts,
+					"──────────",
+				)
 
 		case refCompressors:
+
 			parts =
-				append(parts, "───────────")
+				append(
+					parts,
+					"───────────",
+				)
 		}
 	}
 
@@ -3003,6 +3774,7 @@ func buildReferenceRow(
 		switch column {
 
 		case refTeeth:
+
 			parts =
 				append(
 					parts,
@@ -3013,6 +3785,7 @@ func buildReferenceRow(
 				)
 
 		case refFull:
+
 			parts =
 				append(
 					parts,
@@ -3023,6 +3796,7 @@ func buildReferenceRow(
 				)
 
 		case refHalf:
+
 			parts =
 				append(
 					parts,
@@ -3033,6 +3807,7 @@ func buildReferenceRow(
 				)
 
 		case refOffset:
+
 			parts =
 				append(
 					parts,
@@ -3043,6 +3818,7 @@ func buildReferenceRow(
 				)
 
 		case refCompValue:
+
 			parts =
 				append(
 					parts,
@@ -3053,6 +3829,7 @@ func buildReferenceRow(
 				)
 
 		case refCompressors:
+
 			parts =
 				append(
 					parts,
@@ -3112,7 +3889,10 @@ func layoutWidthDisplay(value string) string {
 }
 
 func orderDisplay(value string) string {
-	if value == "calculator-first" {
+
+	if value ==
+		"calculator-first" {
+
 		return "Calculator first"
 	}
 
@@ -3123,7 +3903,9 @@ func themeDisplayName(key string) string {
 
 	for i, value := range themeKeys {
 
-		if value == key {
+		if value ==
+			key {
+
 			return themeNames[i]
 		}
 	}
@@ -3135,7 +3917,9 @@ func accentDisplayName(key string) string {
 
 	for i, value := range accentKeys {
 
-		if value == key {
+		if value ==
+			key {
+
 			return accentNames[i]
 		}
 	}
