@@ -1,0 +1,11 @@
+# Build output
+PC-Gear-Calculator
+PC-Gear-Calculator.exe
+dist/
+
+# Go
+*.test
+coverage.out
+
+# Local backups
+*.backup
