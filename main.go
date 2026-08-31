@@ -8,6 +8,8 @@ import (
 )
 
 func main() {
+	checkForUpdate()
+
 	if _, err := tea.NewProgram(
 		initialModel(),
 	).Run(); err != nil {
