@@ -2815,7 +2815,7 @@ func (m model) viewMain() tea.View {
 			appendValue(
 				"OFFSET",
 				fmt.Sprintf(
-					"%.8f",
+					"%.3f",
 					offset,
 				),
 			)
