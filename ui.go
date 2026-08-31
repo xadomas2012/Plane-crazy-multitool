@@ -10,6 +10,14 @@ import (
 	"charm.land/lipgloss/v2"
 )
 
+type page int
+
+const (
+	pageMain page = iota
+	pageThemes
+	pageAccents
+)
+
 func newInput(value string) textinput.Model {
 	input := textinput.New()
 	input.SetValue(value)
@@ -20,14 +28,6 @@ func newInput(value string) textinput.Model {
 
 	return input
 }
-
-type page int
-
-const (
-	pageMain page = iota
-	pageThemes
-	pageAccents
-)
 
 type model struct {
 	teethInput      textinput.Model
@@ -309,13 +309,51 @@ func (m model) handleMainMouse(
 
 	width := m.width
 
-	if width < 100 {
-		width = 100
+	if width < 1 {
+		width = 1
 	}
 
+	// Compact layout.
+	if width < 110 {
+
+		fieldX := 2
+
+		mainTop := 2
+
+		teethY := mainTop + 4
+		compressorY := mainTop + 7
+
+		if msg.X >= fieldX &&
+			msg.X < fieldX+24 &&
+			msg.Y == teethY {
+
+			m.modeTeeth()
+			return m, nil
+		}
+
+		if msg.X >= fieldX &&
+			msg.X < fieldX+24 &&
+			msg.Y == compressorY {
+
+			m.modeCompressors()
+			return m, nil
+		}
+
+		m.stopEditing()
+
+		return m, nil
+	}
+
+	// Normal layout.
 	leftWidth := int(
 		float64(width) * 0.60,
 	)
+
+	const referencePanelMinWidth = 78
+
+	if leftWidth < referencePanelMinWidth {
+		leftWidth = referencePanelMinWidth
+	}
 
 	calculatorX := leftWidth + 1
 	fieldX := calculatorX + 2
@@ -498,12 +536,12 @@ func (m model) viewMain() tea.View {
 	width := m.width
 	height := m.height
 
-	if width < 100 {
-		width = 100
+	if width < 1 {
+		width = 1
 	}
 
-	if height < 24 {
-		height = 24
+	if height < 1 {
+		height = 1
 	}
 
 	teeth := m.currentTeeth()
@@ -578,14 +616,12 @@ func (m model) viewMain() tea.View {
 		author,
 	)
 
-	// Explicitly paint every cell of the first row.
 	topRow := lipgloss.NewStyle().
 		Width(width).
 		Height(1).
 		Background(p.surface).
 		Render(topContent)
 
-	// Explicitly paint every cell of the second row.
 	topSecondRow := lipgloss.NewStyle().
 		Width(width).
 		Height(1).
@@ -743,62 +779,117 @@ func (m model) viewMain() tea.View {
 
 	contentHeight := height - 4
 
-	leftWidth := int(
-		float64(width) * 0.60,
-	)
-
-	rightWidth := width -
-		leftWidth -
-		1
-
-	leftPanel := lipgloss.NewStyle().
-		Width(leftWidth).
-		Height(contentHeight).
-		Padding(1, 2).
-		Background(p.background).
-		Foreground(p.text).
-		Render(
-			reference.String(),
-		)
-
-	// Full-height divider.
-	dividerLines := make(
-		[]string,
-		contentHeight,
-	)
-
-	for i := range dividerLines {
-		dividerLines[i] = "│"
+	if contentHeight < 1 {
+		contentHeight = 1
 	}
 
-	divider := lipgloss.NewStyle().
-		Width(1).
-		Height(contentHeight).
-		Foreground(p.border).
-		Render(
-			strings.Join(
-				dividerLines,
-				"\n",
-			),
+	// Normal two-panel layout.
+	if width >= 110 {
+
+		leftWidth := int(
+			float64(width) * 0.60,
 		)
 
-	rightPanel := lipgloss.NewStyle().
-		Width(rightWidth).
+		const referencePanelMinWidth = 78
+
+		if leftWidth < referencePanelMinWidth {
+			leftWidth = referencePanelMinWidth
+		}
+
+		rightWidth := width -
+			leftWidth -
+			1
+
+		if rightWidth < 1 {
+			rightWidth = 1
+		}
+
+		leftPanel := lipgloss.NewStyle().
+			Width(leftWidth).
+			Height(contentHeight).
+			Padding(1, 2).
+			Background(p.background).
+			Foreground(p.text).
+			Render(
+				reference.String(),
+			)
+
+		dividerLines := make(
+			[]string,
+			contentHeight,
+		)
+
+		for i := range dividerLines {
+			dividerLines[i] = "│"
+		}
+
+		divider := lipgloss.NewStyle().
+			Width(1).
+			Height(contentHeight).
+			Foreground(p.border).
+			Render(
+				strings.Join(
+					dividerLines,
+					"\n",
+				),
+			)
+
+		rightPanel := lipgloss.NewStyle().
+			Width(rightWidth).
+			Height(contentHeight).
+			Padding(1, 2).
+			Background(p.panel).
+			Render(
+				calculator,
+			)
+
+		main := lipgloss.JoinHorizontal(
+			lipgloss.Top,
+			leftPanel,
+			divider,
+			rightPanel,
+		)
+
+		// ───────── BOTTOM BAR ─────────
+
+		bottomText :=
+			"[E] Edit teeth    [R] Edit compressors    [C] Customize    [Q] Quit"
+
+		bottomBar := lipgloss.NewStyle().
+			Width(width).
+			Height(2).
+			Background(p.surface).
+			Foreground(p.muted).
+			Render(bottomText)
+
+		output := strings.Join(
+			[]string{
+				topBar,
+				main,
+				bottomBar,
+			},
+			"\n",
+		)
+
+		view := tea.NewView(output)
+
+		view.AltScreen = true
+		view.MouseMode = tea.MouseModeCellMotion
+
+		return view
+	}
+
+	// ───────── COMPACT LAYOUT ─────────
+
+	compactCalculator := lipgloss.NewStyle().
+		Width(width).
 		Height(contentHeight).
 		Padding(1, 2).
 		Background(p.panel).
+		Foreground(p.text).
 		Render(
 			calculator,
 		)
-
-	main := lipgloss.JoinHorizontal(
-		lipgloss.Top,
-		leftPanel,
-		divider,
-		rightPanel,
-	)
-
-	// ───────── BOTTOM BAR ─────────
 
 	bottomText :=
 		"[E] Edit teeth    [R] Edit compressors    [C] Customize    [Q] Quit"
@@ -810,12 +901,10 @@ func (m model) viewMain() tea.View {
 		Foreground(p.muted).
 		Render(bottomText)
 
-	// ───────── FINAL ─────────
-
 	output := strings.Join(
 		[]string{
 			topBar,
-			main,
+			compactCalculator,
 			bottomBar,
 		},
 		"\n",
