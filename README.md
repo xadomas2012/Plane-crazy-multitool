@@ -13,7 +13,6 @@ A terminal-based gear calculator for Plane Crazy.
 - Catppuccin Mocha, Nord, Gruvbox and Solid themes
 - Multiple accent colors
 - Mouse support
-- Persistent configuration
 - Fullscreen terminal UI
 
 ## Requirements
@@ -22,7 +21,10 @@ No Go installation is required to run a released binary.
 
 Download the executable for your platform and run it.
 
-## Linux x64
+## App instructions for Windows
+The app will get flagged by windows smartscreen, and i cannot do anything about that. For safety, the sha256 file is included so you can check if the file is ok, but there should be nothing wrong. Just launch the exe, and you have the calculator.
+
+## App instructions for Linux
 
 ```bash
 chmod +x PC-Gear-Calculator-Linux-x64
