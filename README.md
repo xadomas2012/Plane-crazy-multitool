@@ -27,5 +27,5 @@ The app will get flagged by windows smartscreen, and i cannot do anything about 
 ## App instructions for Linux
 
 ```bash
-chmod +x PC-Gear-Calculator-Linux-x64
-./PC-Gear-Calculator-Linux-x64
+##make the file executable. chmod +x PC-Gear-Calculator-Linux-x64
+##run the file ./PC-Gear-Calculator-Linux-x64
