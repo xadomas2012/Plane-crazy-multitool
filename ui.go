@@ -1033,45 +1033,168 @@ func (m model) handleMouse(
 	}
 
 	width := m.width
-
 	if width < 1 {
 		width = 1
 	}
 
 	mode := m.effectiveLayout()
 
-	// Compact / stacked modes.
-	if mode == "calculator-only" ||
-		mode == "reference-only" ||
-		mode == "stacked" {
+	// Reference-only has no editable calculator fields.
+	if mode == "reference-only" ||
+		!m.cfg.Calculator.Enabled {
 
-		teethY := 6
-		compressorY := 9
-
-		if msg.X >= 2 &&
-			msg.X < 26 &&
-			msg.Y == teethY {
-
-			m.modeTeeth()
-			return m, nil
-		}
-
-		if msg.X >= 2 &&
-			msg.X < 26 &&
-			msg.Y == compressorY {
-
-			m.modeCompressors()
-			return m, nil
-		}
-
+		m.stopEditing()
 		return m, nil
 	}
 
-	leftWidth, _ :=
-		m.panelWidths(width)
+	// ─────────────────────────────────────────────────────────
+	// Stacked
+	// ─────────────────────────────────────────────────────────
 
-	calculatorLeft :=
-		mode == "calculator-left"
+	if mode == "stacked" {
+
+		contentHeight := m.height - 4
+		if contentHeight < 1 {
+			contentHeight = 1
+		}
+
+		calculatorHeight := 5
+
+		if contentHeight < 8 {
+			calculatorHeight = contentHeight / 2
+		}
+
+		if calculatorHeight < 1 {
+			calculatorHeight = 1
+		}
+
+		referenceHeight := contentHeight - calculatorHeight
+
+		if referenceHeight < 1 {
+			referenceHeight = 1
+		}
+
+		calculatorTop := 2 + referenceHeight
+
+		if m.cfg.Layout.Order == "calculator-first" {
+			calculatorTop = 2
+		}
+
+		fieldY := calculatorTop + 1
+
+		// Horizontal calculator:
+		// [ TEETH ] [ COMPRESSORS ] [ FULL ] ...
+		if msg.Y == fieldY {
+
+			x := 2
+
+			if m.cfg.Calculator.Teeth {
+
+				if msg.X >= x && msg.X < x+22 {
+					m.modeTeeth()
+					return m, nil
+				}
+
+				x += 22
+			}
+
+			if m.cfg.Calculator.Compressors {
+
+				if msg.X >= x && msg.X < x+22 {
+					m.modeCompressors()
+					return m, nil
+				}
+			}
+		}
+
+		m.stopEditing()
+		return m, nil
+	}
+
+	// ─────────────────────────────────────────────────────────
+	// Calculator-only / narrow automatic layout
+	// ─────────────────────────────────────────────────────────
+
+	if mode == "calculator-only" ||
+		width < 80 {
+
+		// calculator panel starts immediately below the two-row top bar.
+		panelTop := 2
+
+		if m.cfg.Density == "minimal" {
+
+			if m.cfg.Calculator.Teeth &&
+				msg.X >= 2 &&
+				msg.X < 26 &&
+				msg.Y == panelTop+2 {
+
+				m.modeTeeth()
+				return m, nil
+			}
+
+			if m.cfg.Calculator.Compressors {
+
+				y := panelTop + 4
+
+				if m.cfg.Calculator.Teeth {
+					y = panelTop + 4
+				} else {
+					y = panelTop + 2
+				}
+
+				if msg.X >= 2 &&
+					msg.X < 26 &&
+					msg.Y == y {
+
+					m.modeCompressors()
+					return m, nil
+				}
+			}
+
+		} else {
+
+			y := panelTop + 3
+
+			if m.cfg.Calculator.Teeth {
+
+				if msg.X >= 2 &&
+					msg.X < 26 &&
+					msg.Y == y {
+
+					m.modeTeeth()
+					return m, nil
+				}
+
+				y += 2
+
+				if m.cfg.Density == "normal" {
+					y++
+				}
+			}
+
+			if m.cfg.Calculator.Compressors {
+
+				if msg.X >= 2 &&
+					msg.X < 26 &&
+					msg.Y == y {
+
+					m.modeCompressors()
+					return m, nil
+				}
+			}
+		}
+
+		m.stopEditing()
+		return m, nil
+	}
+
+	// ─────────────────────────────────────────────────────────
+	// Side-by-side layouts
+	// ─────────────────────────────────────────────────────────
+
+	leftWidth, _ := m.panelWidths(width)
+
+	calculatorLeft := mode == "calculator-left"
 
 	calculatorX := leftWidth + 1
 
@@ -1081,21 +1204,49 @@ func (m model) handleMouse(
 
 	fieldX := calculatorX + 2
 
-	if msg.X >= fieldX &&
-		msg.X < fieldX+24 &&
-		msg.Y == 6 {
+	// These Y coordinates match the current viewMain() renderer,
+	// which has horizontal panel padding but no vertical padding.
+	var teethY int
+	var compressorsY int
+
+	switch m.cfg.Density {
+
+	case "minimal":
+		teethY = 4
+		compressorsY = 6
+
+	case "compact":
+		teethY = 5
+		compressorsY = 7
+
+	default: // normal
+		teethY = 5
+		compressorsY = 8
+	}
+
+	// Give the input boxes a little generous horizontal hit area.
+	const fieldWidth = 24
+
+	if m.cfg.Calculator.Teeth &&
+		msg.X >= fieldX &&
+		msg.X < fieldX+fieldWidth &&
+		msg.Y == teethY {
 
 		m.modeTeeth()
 		return m, nil
 	}
 
-	if msg.X >= fieldX &&
-		msg.X < fieldX+24 &&
-		msg.Y == 9 {
+	if m.cfg.Calculator.Compressors &&
+		msg.X >= fieldX &&
+		msg.X < fieldX+fieldWidth &&
+		msg.Y == compressorsY {
 
 		m.modeCompressors()
 		return m, nil
 	}
+
+	// Clicking anywhere that isn't an input removes focus.
+	m.stopEditing()
 
 	return m, nil
 }
