@@ -635,36 +635,76 @@ func (m model) viewCrank() tea.View {
 				),
 			)
 
-	main :=
-		lipgloss.JoinHorizontal(
-			lipgloss.Top,
-			leftPanel,
-			divider,
-			rightPanel,
-		)
+	var main string
 
-	topBarStyle :=
-		lipgloss.NewStyle().
-			Width(width).
-			Height(2).
-			Foreground(p.accent)
-
-	if m.cfg.Appearance.Background !=
-		"transparent" {
-
-		topBarStyle =
-			topBarStyle.Background(p.surface)
+	if m.cfg.Crank.Layout == "results-left" {
+		main =
+			lipgloss.JoinHorizontal(
+				lipgloss.Top,
+				rightPanel,
+				divider,
+				leftPanel,
+			)
+	} else {
+		main =
+			lipgloss.JoinHorizontal(
+				lipgloss.Top,
+				leftPanel,
+				divider,
+				rightPanel,
+			)
 	}
 
-	topBar :=
-		topBarStyle.Render(
-			"PC MULTITOOL  •  CRANK ANGLE CALCULATOR",
-		)
+	crankTitleText := "PC MULTITOOL  •  CRANK ANGLE CALCULATOR"
+	crankAuthorText := "Made by Xad0"
+
+	crankTitleStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(p.accent)
+
+	crankAuthorStyle := lipgloss.NewStyle().
+		Foreground(p.muted)
+
+	if m.cfg.Appearance.Background != "transparent" {
+		crankTitleStyle =
+			crankTitleStyle.Background(p.surface)
+		crankAuthorStyle =
+			crankAuthorStyle.Background(p.surface)
+	}
+
+	crankTitle := crankTitleStyle.Render(crankTitleText)
+	crankAuthor := crankAuthorStyle.Render(crankAuthorText)
+
+	crankGap := width -
+		lipgloss.Width(crankTitleText) -
+		lipgloss.Width(crankAuthorText)
+
+	if crankGap < 1 {
+		crankGap = 1
+	}
+
+	crankTopBarStyle := lipgloss.NewStyle().
+		Width(width).
+		Height(2)
+
+	if m.cfg.Appearance.Background != "transparent" {
+		crankTopBarStyle =
+			crankTopBarStyle.Background(p.surface)
+	}
+
+	crankTopBar := crankTopBarStyle.Render(
+		lipgloss.JoinHorizontal(
+			lipgloss.Top,
+			crankTitle,
+			strings.Repeat(" ", crankGap),
+			crankAuthor,
+		),
+	)
 
 	content :=
 		strings.Join(
 			[]string{
-				topBar,
+				crankTopBar,
 				main,
 			},
 			"\n",

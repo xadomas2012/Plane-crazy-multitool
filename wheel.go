@@ -532,42 +532,80 @@ func (m model) viewWheel() tea.View {
 				),
 			)
 
-	main :=
-		lipgloss.JoinHorizontal(
-			lipgloss.Top,
-			leftPanel,
-			divider,
-			rightPanel,
-		)
+	var main string
+
+	if m.cfg.Wheel.ResultSide == "left" {
+		main =
+			lipgloss.JoinHorizontal(
+				lipgloss.Top,
+				rightPanel,
+				divider,
+				leftPanel,
+			)
+	} else {
+		main =
+			lipgloss.JoinHorizontal(
+				lipgloss.Top,
+				leftPanel,
+				divider,
+				rightPanel,
+			)
+	}
 
 	// ─────────────────────────────────────────────────────────
 	// Top bar
 	// ─────────────────────────────────────────────────────────
 
-	topBarStyle :=
-		lipgloss.NewStyle().
-			Width(width).
-			Height(2).
-			Foreground(p.accent)
+	wheelTitleText := "PC MULTITOOL  •  WHEEL CALCULATOR"
+	wheelAuthorText := "Made by Xad0"
 
-	if m.cfg.Appearance.Background !=
-		"transparent" {
+	wheelTitleStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(p.accent)
 
-		topBarStyle =
-			topBarStyle.Background(
-				p.surface,
-			)
+	wheelAuthorStyle := lipgloss.NewStyle().
+		Foreground(p.muted)
+
+	if m.cfg.Appearance.Background != "transparent" {
+		wheelTitleStyle =
+			wheelTitleStyle.Background(p.surface)
+		wheelAuthorStyle =
+			wheelAuthorStyle.Background(p.surface)
 	}
 
-	topBar :=
-		topBarStyle.Render(
-			"PC MULTITOOL  •  WHEEL CALCULATOR",
-		)
+	wheelTitle := wheelTitleStyle.Render(wheelTitleText)
+	wheelAuthor := wheelAuthorStyle.Render(wheelAuthorText)
+
+	wheelGap := width -
+		lipgloss.Width(wheelTitleText) -
+		lipgloss.Width(wheelAuthorText)
+
+	if wheelGap < 1 {
+		wheelGap = 1
+	}
+
+	wheelTopBarStyle := lipgloss.NewStyle().
+		Width(width).
+		Height(2)
+
+	if m.cfg.Appearance.Background != "transparent" {
+		wheelTopBarStyle =
+			wheelTopBarStyle.Background(p.surface)
+	}
+
+	wheelTopBar := wheelTopBarStyle.Render(
+		lipgloss.JoinHorizontal(
+			lipgloss.Top,
+			wheelTitle,
+			strings.Repeat(" ", wheelGap),
+			wheelAuthor,
+		),
+	)
 
 	content :=
 		strings.Join(
 			[]string{
-				topBar,
+				wheelTopBar,
 				main,
 			},
 			"\n",

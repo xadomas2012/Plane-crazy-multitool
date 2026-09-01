@@ -106,7 +106,7 @@ func dynoParseFloat(value string) (float64, bool) {
 }
 
 func dynoRPM(sps float64) float64 {
-	return sps * 3.82
+	return sps * 3.84
 }
 
 func dynoBHP(torque, rpm float64) float64 {
@@ -493,6 +493,13 @@ func (m model) updateDyno(
 
 	case "q", "ctrl+c":
 		return m, tea.Quit
+
+	case "c":
+		m.dynoBlurAll()
+		m.customizeTool = customizeDyno
+		m.customIndex = 0
+		m.page = pageCustomize
+		return m, nil
 
 	case "esc":
 
@@ -1017,6 +1024,28 @@ func (m model) dynoDataView(
 				),
 			)
 	}
+
+	// Controls shown directly below the data table.
+	lines =
+		append(
+			lines,
+			lineStyle.Render(""),
+			lineStyle.Render(
+				mutedStyle.Render(
+					"[↑↓] Navigate  [TAB] Next  [SHIFT+TAB] Previous",
+				),
+			),
+			lineStyle.Render(
+				mutedStyle.Render(
+					"[ENTER/E] Edit  [G] Fullscreen graph  [C] Customize  [ESC] Back",
+				),
+			),
+			lineStyle.Render(
+				mutedStyle.Render(
+					"[E] Export PNG",
+				),
+			),
+		)
 
 	return strings.Join(
 		lines,
@@ -1797,12 +1826,6 @@ func (m model) dynoResultsView(
 					peakBHPSPS,
 				),
 				"",
-				muted.Render(
-					"RPM = SPS × 3.82",
-				),
-				muted.Render(
-					"BHP = Torque × RPM / 52.52",
-				),
 			)
 	}
 
@@ -2400,13 +2423,25 @@ func (m model) viewDyno() tea.View {
 				),
 			)
 
-	main :=
-		lipgloss.JoinHorizontal(
-			lipgloss.Top,
-			leftPanel,
-			divider,
-			rightPanel,
-		)
+	var main string
+
+	if m.cfg.Dyno.GraphSide == "left" {
+		main =
+			lipgloss.JoinHorizontal(
+				lipgloss.Top,
+				rightPanel,
+				divider,
+				leftPanel,
+			)
+	} else {
+		main =
+			lipgloss.JoinHorizontal(
+				lipgloss.Top,
+				leftPanel,
+				divider,
+				rightPanel,
+			)
+	}
 
 	topStyle :=
 		lipgloss.NewStyle().
@@ -2424,15 +2459,59 @@ func (m model) viewDyno() tea.View {
 			)
 	}
 
-	top :=
-		topStyle.Render(
-			"PC MULTITOOL  •  DYNO",
+	dynoTitleText := "PC MULTITOOL  •  DYNO"
+	dynoAuthorText := "Made by Xad0"
+
+	dynoTitleStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(p.accent)
+
+	dynoAuthorStyle := lipgloss.NewStyle().
+		Foreground(p.muted)
+
+	if m.cfg.Appearance.Background != "transparent" {
+		dynoTitleStyle =
+			dynoTitleStyle.Background(p.surface)
+		dynoAuthorStyle =
+			dynoAuthorStyle.Background(p.surface)
+	}
+
+	dynoTitle := dynoTitleStyle.Render(dynoTitleText)
+	dynoAuthor := dynoAuthorStyle.Render(dynoAuthorText)
+
+	dynoGap := width -
+		lipgloss.Width(dynoTitleText) -
+		lipgloss.Width(dynoAuthorText)
+
+	if dynoGap < 1 {
+		dynoGap = 1
+	}
+
+	dynoTopStyle :=
+		lipgloss.NewStyle().
+			Width(width).
+			Height(2).
+			Bold(true)
+
+	if m.cfg.Appearance.Background != "transparent" {
+		dynoTopStyle =
+			dynoTopStyle.Background(p.surface)
+	}
+
+	dynoTop :=
+		dynoTopStyle.Render(
+			lipgloss.JoinHorizontal(
+				lipgloss.Top,
+				dynoTitle,
+				strings.Repeat(" ", dynoGap),
+				dynoAuthor,
+			),
 		)
 
 	content :=
 		strings.Join(
 			[]string{
-				top,
+				dynoTop,
 				main,
 			},
 			"\n",

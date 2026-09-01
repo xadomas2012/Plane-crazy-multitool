@@ -11,6 +11,9 @@ type config struct {
 	Layout     layoutConfig     `json:"layout"`
 	Reference  referenceConfig  `json:"reference"`
 	Calculator calculatorConfig `json:"calculator"`
+	Crank      crankConfig      `json:"crank"`
+	Dyno       dynoConfig       `json:"dyno"`
+	Wheel      wheelConfig      `json:"wheel"`
 
 	SetupCompleted  bool   `json:"setup_completed"`
 	ExportDirectory string `json:"export_directory"`
@@ -34,12 +37,26 @@ type layoutConfig struct {
 
 type referenceConfig struct {
 	Enabled         bool `json:"enabled"`
+	SmallestGear    int  `json:"smallest_gear"`
+	MaximumGear     int  `json:"maximum_gear"`
 	Teeth           bool `json:"teeth"`
 	FullAngle       bool `json:"full_angle"`
 	HalfAngle       bool `json:"half_angle"`
 	Offset          bool `json:"offset"`
 	CompressorValue bool `json:"compressor_value"`
 	Compressors     bool `json:"compressors"`
+}
+
+type crankConfig struct {
+	Layout string `json:"layout"`
+}
+
+type dynoConfig struct {
+	GraphSide string `json:"graph_side"`
+}
+
+type wheelConfig struct {
+	ResultSide string `json:"result_side"`
 }
 
 type calculatorConfig struct {
@@ -86,12 +103,26 @@ func defaultConfig() config {
 
 		Reference: referenceConfig{
 			Enabled:         true,
+			SmallestGear:    4,
+			MaximumGear:     20,
 			Teeth:           true,
 			FullAngle:       true,
 			HalfAngle:       true,
 			Offset:          true,
 			CompressorValue: true,
 			Compressors:     true,
+		},
+
+		Crank: crankConfig{
+			Layout: "results-right",
+		},
+
+		Dyno: dynoConfig{
+			GraphSide: "right",
+		},
+
+		Wheel: wheelConfig{
+			ResultSide: "right",
 		},
 
 		Calculator: calculatorConfig{
@@ -239,6 +270,39 @@ func normalizeConfig(
 	if cfg.ExportDirectory == "" {
 		cfg.ExportDirectory =
 			defaults.ExportDirectory
+	}
+
+	if cfg.Reference.SmallestGear < 1 {
+		cfg.Reference.SmallestGear =
+			defaults.Reference.SmallestGear
+	}
+
+	if cfg.Crank.Layout != "results-left" &&
+		cfg.Crank.Layout != "results-right" {
+		cfg.Crank.Layout =
+			defaults.Crank.Layout
+	}
+
+	if cfg.Dyno.GraphSide != "left" &&
+		cfg.Dyno.GraphSide != "right" {
+		cfg.Dyno.GraphSide =
+			defaults.Dyno.GraphSide
+	}
+
+	if cfg.Wheel.ResultSide != "left" &&
+		cfg.Wheel.ResultSide != "right" {
+		cfg.Wheel.ResultSide =
+			defaults.Wheel.ResultSide
+	}
+
+	if cfg.Reference.MaximumGear < cfg.Reference.SmallestGear {
+		cfg.Reference.MaximumGear =
+			defaults.Reference.MaximumGear
+
+		if cfg.Reference.MaximumGear < cfg.Reference.SmallestGear {
+			cfg.Reference.MaximumGear =
+				cfg.Reference.SmallestGear
+		}
 	}
 
 	return cfg

@@ -98,6 +98,10 @@ type model struct {
 	calculatorIndex   int
 	resetIndex        int
 
+	referenceSmallestInput textinput.Model
+	referenceMaximumInput  textinput.Model
+	referenceScroll        int
+
 	crankIndex         int
 	crankLayoutIndex   int
 	crankCylinderInput textinput.Model
@@ -137,9 +141,27 @@ func initialModel() model {
 	setupInput.Prompt = ""
 	setupInput.Blur()
 
+	referenceSmallestInput :=
+		newInput(
+			strconv.Itoa(
+				cfg.Reference.SmallestGear,
+			),
+		)
+
+	referenceMaximumInput :=
+		newInput(
+			strconv.Itoa(
+				cfg.Reference.MaximumGear,
+			),
+		)
+
 	m := model{
-		teethInput:         newInput(strconv.Itoa(teeth)),
-		compressorInput:    newInput(strconv.Itoa(compressors)),
+		teethInput:             newInput(strconv.Itoa(teeth)),
+		compressorInput:        newInput(strconv.Itoa(compressors)),
+		referenceSmallestInput: referenceSmallestInput,
+		referenceMaximumInput:  referenceMaximumInput,
+		referenceScroll:        0,
+
 		crankCylinderInput: crankInput(6),
 		wheelTireInput:     wheelInput(10),
 		dynoPoints:         initialDynoPoints(),
@@ -167,6 +189,15 @@ func initialModel() model {
 	m.updateThemeIndex()
 	m.updateAccentIndex()
 
+	switch cfg.Crank.Layout {
+	case "v":
+		m.crankLayoutIndex = int(crankV)
+	case "boxer":
+		m.crankLayoutIndex = int(crankBoxer)
+	default:
+		m.crankLayoutIndex = int(crankInline)
+	}
+
 	if !cfg.SetupCompleted {
 		m.page = pageSetup
 	}
@@ -184,18 +215,47 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+
+		m.referenceScroll =
+			m.clampReferenceScroll()
+
 		return m, nil
 
 	case tea.MouseClickMsg:
 		return m.handleMouse(msg)
 
 	case tea.MouseWheelMsg:
+
 		if m.page == pageDyno {
 			return m.handleDynoWheel(msg)
 		}
+
+		if m.page == pageMain &&
+			m.cfg.Reference.Enabled &&
+			m.referenceMouseArea(
+				msg.X,
+				msg.Y,
+			) {
+
+			switch msg.Button {
+
+			case tea.MouseWheelDown:
+				m.referenceScroll++
+
+			case tea.MouseWheelUp:
+				m.referenceScroll--
+			}
+
+			m.referenceScroll =
+				m.clampReferenceScroll()
+
+			return m, nil
+		}
+
 		return m, nil
 
 	case tea.KeyPressMsg:
+
 		switch m.page {
 
 		case pageHome:
@@ -247,6 +307,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateReset(msg)
 
 		case pageAbout:
+
 			switch msg.String() {
 
 			case "q", "ctrl+c":
@@ -280,69 +341,76 @@ func (m model) updateHome(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 
 	switch msg.String() {
-
 	case "q", "ctrl+c":
 		return m, tea.Quit
 
 	case "up":
 		m.homeIndex--
-
 		if m.homeIndex < 0 {
 			m.homeIndex = len(items) - 1
 		}
 
 	case "down":
 		m.homeIndex++
-
 		if m.homeIndex >= len(items) {
 			m.homeIndex = 0
 		}
 
 	case "enter":
-		switch m.homeIndex {
+		return m.openHomeItem(m.homeIndex)
+	}
 
-		case 0:
-			m.stopEditing()
-			m.page = pageMain
+	return m, nil
+}
 
-		case 1:
-			m.stopEditing()
-			m.crankLayoutIndex = int(crankInline)
-			m.crankCylinderInput.Blur()
-			m.page = pageCrank
+func (m model) openHomeItem(index int) (tea.Model, tea.Cmd) {
+	m.homeIndex = index
 
-		case 2:
-			m.stopEditing()
-			m.wheelTireInput.Blur()
-			m.page = pageWheel
+	switch index {
+	case 0:
+		m.stopEditing()
+		m.page = pageMain
 
-		case 3:
-			m.stopEditing()
-			m.page = pageDyno
-			return m, m.dynoFocusField(0)
+	case 1:
+		m.stopEditing()
+		m.crankLayoutIndex = int(crankInline)
+		m.crankCylinderInput.Blur()
+		m.page = pageCrank
 
-		case 4:
-			m.stopEditing()
-			m.customToolIndex = 0
-			m.page = pageToolCustomizeSelect
+	case 2:
+		m.stopEditing()
+		m.wheelTireInput.Blur()
+		m.page = pageWheel
 
-		case 5:
-			m.stopEditing()
-			m.page = pageAbout
+	case 3:
+		m.stopEditing()
+		m.page = pageDyno
+		return m, m.dynoFocusField(0)
 
-		case 6:
-			return m, tea.Quit
-		}
+	case 4:
+		m.stopEditing()
+		m.customToolIndex = 0
+		m.customIndex = 0
+		m.page = pageToolCustomizeSelect
+
+	case 5:
+		m.stopEditing()
+		m.page = pageAbout
+
+	case 6:
+		return m, tea.Quit
 	}
 
 	return m, nil
 }
 
 func (m model) viewHome() tea.View {
-	p := getPalette(
-		m.theme,
-		m.accent,
-	)
+
+	p :=
+		getPalette(
+			m.theme,
+			m.accent,
+		)
 
 	width := m.width
 	height := m.height
@@ -385,39 +453,49 @@ func (m model) viewHome() tea.View {
 
 	var lines []string
 
-	lines = append(
-		lines,
-		"",
-		titleStyle.Render("PC MULTITOOL"),
-		"",
-		subtitleStyle.Render(
-			"Plane Crazy Engineering Tools",
-		),
-		"",
-	)
+	lines =
+		append(
+			lines,
+			"",
+			titleStyle.Render(
+				"PC MULTITOOL",
+			),
+			"",
+			subtitleStyle.Render(
+				"Plane Crazy Engineering Tools",
+			),
+			"",
+		)
 
 	for i, item := range items {
+
 		prefix := "  "
 		style := itemStyle
 
 		if i == m.homeIndex {
+
 			prefix = "> "
-			style = selectedStyle
+			style =
+				selectedStyle
 		}
 
-		lines = append(
-			lines,
-			style.Render(prefix+item),
-		)
+		lines =
+			append(
+				lines,
+				style.Render(
+					prefix+item,
+				),
+			)
 	}
 
-	lines = append(
-		lines,
-		"",
-		subtitleStyle.Render(
-			"[↑↓] Select    [ENTER] Open    [Q] Quit",
-		),
-	)
+	lines =
+		append(
+			lines,
+			"",
+			subtitleStyle.Render(
+				"[↑↓] Select    [ENTER] Open    [Q] Quit",
+			),
+		)
 
 	content :=
 		strings.Join(
@@ -428,7 +506,8 @@ func (m model) viewHome() tea.View {
 	boxWidth := 56
 
 	if boxWidth > width-4 {
-		boxWidth = width - 4
+		boxWidth =
+			width - 4
 	}
 
 	if boxWidth < 1 {
@@ -452,7 +531,9 @@ func (m model) viewHome() tea.View {
 		)
 
 	view :=
-		tea.NewView(output)
+		tea.NewView(
+			output,
+		)
 
 	view.AltScreen = true
 	view.MouseMode =
@@ -472,37 +553,66 @@ func (m model) viewHome() tea.View {
 // Main input handling
 // ─────────────────────────────────────────────────────────────
 
-func (m model) updateMain(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+func (m model) updateMain(
+	msg tea.KeyPressMsg,
+) (tea.Model, tea.Cmd) {
+
 	switch msg.String() {
 
 	case "q", "ctrl+c":
 		return m, tea.Quit
 
 	case "e":
+
 		m.modeTeeth()
 		return m, nil
 
 	case "r":
+
 		m.modeCompressors()
 		return m, nil
 
 	case "c":
+
 		m.stopEditing()
 		m.customizeTool = customizeGear
 		m.customIndex = 0
 		m.page = pageCustomize
+
+		return m, nil
+
+	case "pageup":
+
+		m.referenceScroll--
+
+		m.referenceScroll =
+			m.clampReferenceScroll()
+
+		return m, nil
+
+	case "pagedown":
+
+		m.referenceScroll++
+
+		m.referenceScroll =
+			m.clampReferenceScroll()
+
 		return m, nil
 
 	case "esc":
+
 		m.stopEditing()
 		m.page = pageHome
+
 		return m, nil
 	}
 
 	var cmd tea.Cmd
 
 	if m.teethInput.Focused() {
-		m.teethInput, cmd =
+
+		m.teethInput,
+			cmd =
 			m.teethInput.Update(msg)
 
 		if m.teethInput.Value() != "" {
@@ -513,8 +623,11 @@ func (m model) updateMain(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 
 	if m.compressorInput.Focused() {
-		m.compressorInput, cmd =
+
+		m.compressorInput,
+			cmd =
 			m.compressorInput.Update(msg)
+
 		return m, cmd
 	}
 
@@ -522,59 +635,81 @@ func (m model) updateMain(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *model) modeTeeth() {
+
 	m.compressorInput.Blur()
 	m.crankCylinderInput.Blur()
 	m.wheelTireInput.Blur()
+
 	m.teethInput.Focus()
 	m.teethInput.CursorEnd()
 }
 
 func (m *model) modeCompressors() {
+
 	m.teethInput.Blur()
 	m.crankCylinderInput.Blur()
 	m.wheelTireInput.Blur()
+
 	m.compressorInput.Focus()
 	m.compressorInput.CursorEnd()
 }
 
 func (m *model) stopEditing() {
+
 	m.teethInput.Blur()
 	m.compressorInput.Blur()
 	m.crankCylinderInput.Blur()
 	m.wheelTireInput.Blur()
+
+	m.referenceSmallestInput.Blur()
+	m.referenceMaximumInput.Blur()
+
 	m.setupExportInput.Blur()
 
 	for i := range m.dynoPoints {
+
 		m.dynoPoints[i].SPSInput.Blur()
 		m.dynoPoints[i].TorqueInput.Blur()
 	}
 }
 
 func (m *model) updateAutomaticCompressor() {
-	teeth, err := strconv.Atoi(
-		m.teethInput.Value(),
-	)
 
-	if err != nil || teeth <= 0 {
+	teeth,
+		err :=
+		strconv.Atoi(
+			m.teethInput.Value(),
+		)
+
+	if err != nil ||
+		teeth <= 0 {
+
 		return
 	}
 
-	_, _, offset := Calculate(teeth)
+	_, _, offset :=
+		Calculate(teeth)
 
 	m.compressorInput.SetValue(
 		strconv.Itoa(
-			AutoCompressors(offset),
+			AutoCompressors(
+				offset,
+			),
 		),
 	)
 }
 
 func (m model) currentTeeth() int {
-	value, err :=
+
+	value,
+		err :=
 		strconv.Atoi(
 			m.teethInput.Value(),
 		)
 
-	if err != nil || value <= 0 {
+	if err != nil ||
+		value <= 0 {
+
 		return 6
 	}
 
@@ -582,12 +717,16 @@ func (m model) currentTeeth() int {
 }
 
 func (m model) currentCompressors() int {
-	value, err :=
+
+	value,
+		err :=
 		strconv.Atoi(
 			m.compressorInput.Value(),
 		)
 
-	if err != nil || value <= 0 {
+	if err != nil ||
+		value <= 0 {
+
 		return 1
 	}
 
@@ -602,7 +741,8 @@ func (m model) updateCustomize(
 	msg tea.KeyPressMsg,
 ) (tea.Model, tea.Cmd) {
 
-	items := m.customizeItems()
+	items :=
+		m.customizeItems()
 
 	switch msg.String() {
 
@@ -610,16 +750,21 @@ func (m model) updateCustomize(
 		return m, tea.Quit
 
 	case "up":
+
 		m.customIndex--
 
 		if m.customIndex < 0 {
-			m.customIndex = len(items) - 1
+			m.customIndex =
+				len(items) - 1
 		}
 
 	case "down":
+
 		m.customIndex++
 
-		if m.customIndex >= len(items) {
+		if m.customIndex >=
+			len(items) {
+
 			m.customIndex = 0
 		}
 
@@ -632,29 +777,36 @@ func (m model) updateCustomize(
 			switch m.customIndex {
 
 			case 0:
+
 				m.page = pageAppearance
 				m.appearanceIndex = 0
 
 			case 1:
+
 				m.page = pageLayout
 				m.layoutIndex = 0
 
 			case 2:
+
 				m.page = pageReference
 				m.referenceIndex = 0
 
 			case 3:
+
 				m.page = pageCalculator
 				m.calculatorIndex = 0
 
 			case 4:
+
 				m.page = pageReset
 				m.resetIndex = 1
 
 			case 5:
-				m.page = customizeToolPage(
-					m.customizeTool,
-				)
+
+				m.page =
+					customizeToolPage(
+						m.customizeTool,
+					)
 			}
 
 		case customizeCrank,
@@ -664,18 +816,22 @@ func (m model) updateCustomize(
 			switch m.customIndex {
 
 			case 0:
+
 				m.page = pageAppearance
 				m.appearanceIndex = 0
 
 			case 1:
+
 				m.page = pageLayout
 				m.layoutIndex = 0
 
 			case 2:
+
 				m.page = pageReset
 				m.resetIndex = 1
 
 			case 3:
+
 				m.page =
 					customizeToolPage(
 						m.customizeTool,
@@ -684,6 +840,7 @@ func (m model) updateCustomize(
 		}
 
 	case "esc":
+
 		m.page =
 			customizeToolPage(
 				m.customizeTool,
@@ -698,6 +855,7 @@ func (m model) customizeItems() []string {
 	switch m.customizeTool {
 
 	case customizeGear:
+
 		return []string{
 			"Appearance",
 			"Layout",
@@ -719,6 +877,7 @@ func (m model) customizeItems() []string {
 		}
 
 	default:
+
 		return []string{
 			"Back",
 		}
@@ -729,13 +888,14 @@ func (m model) updateToolCustomizeSelect(
 	msg tea.KeyPressMsg,
 ) (tea.Model, tea.Cmd) {
 
-	items := []string{
-		"Gear Calculator",
-		"Crank Angle Calculator",
-		"Wheel Calculator",
-		"Dyno",
-		"Back",
-	}
+	items :=
+		[]string{
+			"Gear Calculator",
+			"Crank Angle Calculator",
+			"Wheel Calculator",
+			"Dyno",
+			"Back",
+		}
 
 	switch msg.String() {
 
@@ -743,6 +903,7 @@ func (m model) updateToolCustomizeSelect(
 		return m, tea.Quit
 
 	case "up":
+
 		m.customToolIndex--
 
 		if m.customToolIndex < 0 {
@@ -751,9 +912,12 @@ func (m model) updateToolCustomizeSelect(
 		}
 
 	case "down":
+
 		m.customToolIndex++
 
-		if m.customToolIndex >= len(items) {
+		if m.customToolIndex >=
+			len(items) {
+
 			m.customToolIndex = 0
 		}
 
@@ -762,20 +926,26 @@ func (m model) updateToolCustomizeSelect(
 		switch m.customToolIndex {
 
 		case 0:
-			m.customizeTool = customizeGear
+			m.customizeTool =
+				customizeGear
 
 		case 1:
-			m.customizeTool = customizeCrank
+			m.customizeTool =
+				customizeCrank
 
 		case 2:
-			m.customizeTool = customizeWheel
+			m.customizeTool =
+				customizeWheel
 
 		case 3:
-			m.customizeTool = customizeDyno
+			m.customizeTool =
+				customizeDyno
 
 		case 4:
+
 			m.page = pageHome
 			m.homeIndex = 4
+
 			return m, nil
 		}
 
@@ -783,6 +953,7 @@ func (m model) updateToolCustomizeSelect(
 		m.page = pageCustomize
 
 	case "esc":
+
 		m.page = pageHome
 		m.homeIndex = 4
 	}
@@ -794,14 +965,18 @@ func (m model) updateToolCustomizeSelect(
 // Appearance
 // ─────────────────────────────────────────────────────────────
 
-func (m model) updateAppearance(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	items := []string{
-		"Theme",
-		"Accent",
-		"Background",
-		"Panel Transparency",
-		"Back",
-	}
+func (m model) updateAppearance(
+	msg tea.KeyPressMsg,
+) (tea.Model, tea.Cmd) {
+
+	items :=
+		[]string{
+			"Theme",
+			"Accent",
+			"Background",
+			"Panel Transparency",
+			"Back",
+		}
 
 	switch msg.String() {
 
@@ -809,48 +984,66 @@ func (m model) updateAppearance(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 
 	case "up":
+
 		m.appearanceIndex--
 
 		if m.appearanceIndex < 0 {
-			m.appearanceIndex = len(items) - 1
+			m.appearanceIndex =
+				len(items) - 1
 		}
 
 	case "down":
+
 		m.appearanceIndex++
 
-		if m.appearanceIndex >= len(items) {
+		if m.appearanceIndex >=
+			len(items) {
+
 			m.appearanceIndex = 0
 		}
 
 	case "enter":
+
 		switch m.appearanceIndex {
 
 		case 0:
+
 			m.updateThemeIndex()
 			m.page = pageThemes
 
 		case 1:
+
 			m.updateAccentIndex()
 			m.page = pageAccents
 
 		case 2:
-			if m.cfg.Appearance.Background == "theme" {
-				m.cfg.Appearance.Background = "transparent"
+
+			if m.cfg.Appearance.Background ==
+				"theme" {
+
+				m.cfg.Appearance.Background =
+					"transparent"
+
 			} else {
-				m.cfg.Appearance.Background = "theme"
+
+				m.cfg.Appearance.Background =
+					"theme"
 			}
 
 			m.saveSettings()
 
 		case 3:
+
 			m.transparencyIndex = 0
 			m.page = pageTransparency
 
 		case 4:
+
 			m.page = pageCustomize
 		}
 
 	case "esc":
+
 		m.page = pageCustomize
 	}
 
@@ -861,27 +1054,36 @@ func (m model) updateAppearance(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 // Themes
 // ─────────────────────────────────────────────────────────────
 
-func (m model) updateThemes(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+func (m model) updateThemes(
+	msg tea.KeyPressMsg,
+) (tea.Model, tea.Cmd) {
+
 	switch msg.String() {
 
 	case "q", "ctrl+c":
 		return m, tea.Quit
 
 	case "up":
+
 		m.themeIndex--
 
 		if m.themeIndex < 0 {
-			m.themeIndex = len(themeKeys) - 1
+			m.themeIndex =
+				len(themeKeys) - 1
 		}
 
 	case "down":
+
 		m.themeIndex++
 
-		if m.themeIndex >= len(themeKeys) {
+		if m.themeIndex >=
+			len(themeKeys) {
+
 			m.themeIndex = 0
 		}
 
 	case "enter":
+
 		m.theme =
 			themeKeys[m.themeIndex]
 
@@ -892,19 +1094,24 @@ func (m model) updateThemes(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.page = pageAppearance
 
 	case "esc":
+
 		m.page = pageAppearance
 	}
 
 	return m, nil
 }
 
-func (m model) updateAccents(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+func (m model) updateAccents(
+	msg tea.KeyPressMsg,
+) (tea.Model, tea.Cmd) {
+
 	switch msg.String() {
 
 	case "q", "ctrl+c":
 		return m, tea.Quit
 
 	case "up":
+
 		m.accentIndex--
 
 		if m.accentIndex < 0 {
@@ -913,13 +1120,17 @@ func (m model) updateAccents(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case "down":
+
 		m.accentIndex++
 
-		if m.accentIndex >= len(accentKeys) {
+		if m.accentIndex >=
+			len(accentKeys) {
+
 			m.accentIndex = 0
 		}
 
 	case "enter":
+
 		m.accent =
 			accentKeys[m.accentIndex]
 
@@ -927,12 +1138,11 @@ func (m model) updateAccents(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.accent
 
 		m.saveSettings()
-		m.page =
-			pageAppearance
+		m.page = pageAppearance
 
 	case "esc":
-		m.page =
-			pageAppearance
+
+		m.page = pageAppearance
 	}
 
 	return m, nil
@@ -942,7 +1152,9 @@ func (m model) updateAccents(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 // Transparency
 // ─────────────────────────────────────────────────────────────
 
-func (m model) updateTransparency(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+func (m model) updateTransparency(
+	msg tea.KeyPressMsg,
+) (tea.Model, tea.Cmd) {
 
 	items :=
 		[]string{
@@ -959,6 +1171,7 @@ func (m model) updateTransparency(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 
 	case "up":
+
 		m.transparencyIndex--
 
 		if m.transparencyIndex < 0 {
@@ -967,9 +1180,12 @@ func (m model) updateTransparency(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case "down":
+
 		m.transparencyIndex++
 
-		if m.transparencyIndex >= len(items) {
+		if m.transparencyIndex >=
+			len(items) {
+
 			m.transparencyIndex = 0
 		}
 
@@ -978,33 +1194,36 @@ func (m model) updateTransparency(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		switch m.transparencyIndex {
 
 		case 0:
+
 			m.cfg.Appearance.TopBarTransparent =
 				!m.cfg.Appearance.TopBarTransparent
 
 		case 1:
+
 			m.cfg.Appearance.ReferenceTransparent =
 				!m.cfg.Appearance.ReferenceTransparent
 
 		case 2:
+
 			m.cfg.Appearance.CalculatorTransparent =
 				!m.cfg.Appearance.CalculatorTransparent
 
 		case 3:
+
 			m.cfg.Appearance.BottomBarTransparent =
 				!m.cfg.Appearance.BottomBarTransparent
 
 		case 4:
-			m.page =
-				pageAppearance
 
+			m.page = pageAppearance
 			return m, nil
 		}
 
 		m.saveSettings()
 
 	case "esc":
-		m.page =
-			pageAppearance
+
+		m.page = pageAppearance
 	}
 
 	return m, nil
@@ -1015,9 +1234,7 @@ func (m model) updateTransparency(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 // ─────────────────────────────────────────────────────────────
 
 func (m model) updateLayout(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-
-	items :=
-		m.layoutItems()
+	items := m.layoutItems()
 
 	switch msg.String() {
 
@@ -1026,108 +1243,102 @@ func (m model) updateLayout(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	case "up":
 		m.layoutIndex--
-
 		if m.layoutIndex < 0 {
-			m.layoutIndex =
-				len(items) - 1
+			m.layoutIndex = len(items) - 1
 		}
 
 	case "down":
 		m.layoutIndex++
-
 		if m.layoutIndex >= len(items) {
 			m.layoutIndex = 0
 		}
 
-	case "left":
-
-		switch m.customizeTool {
-
-		case customizeGear:
-
-			switch m.layoutIndex {
-			case 6:
-				m.cycleReferenceWidth(-1)
-			case 7:
-				m.toggleOrder()
-			}
-		}
-
-	case "right":
-
-		switch m.customizeTool {
-
-		case customizeGear:
-
-			switch m.layoutIndex {
-			case 6:
-				m.cycleReferenceWidth(1)
-			case 7:
+	case "left", "right":
+		if m.customizeTool == customizeGear {
+			if m.layoutIndex == 6 {
+				if msg.String() == "left" {
+					m.cycleReferenceWidth(-1)
+				} else {
+					m.cycleReferenceWidth(1)
+				}
+			} else if m.layoutIndex == 7 {
 				m.toggleOrder()
 			}
 		}
 
 	case "enter":
-
 		switch m.customizeTool {
 
 		case customizeGear:
-
 			switch m.layoutIndex {
-
 			case 0:
 				m.setLayout("automatic")
-
 			case 1:
 				m.setLayout("calculator-left")
-
 			case 2:
 				m.setLayout("calculator-right")
-
 			case 3:
 				m.setLayout("calculator-only")
-
 			case 4:
 				m.setLayout("reference-only")
-
 			case 5:
 				m.setLayout("stacked")
-
 			case 6:
 				m.cycleReferenceWidth(1)
-
 			case 7:
 				m.toggleOrder()
-
 			case 8:
-				m.page =
-					pageCustomize
+				m.page = pageCustomize
 			}
 
-		default:
+		case customizeCrank:
+			switch m.layoutIndex {
+			case 0:
+				m.cfg.Crank.Layout = "results-left"
+				m.saveSettings()
+			case 1:
+				m.cfg.Crank.Layout = "results-right"
+				m.saveSettings()
+			case 2:
+				m.page = pageCustomize
+			}
 
-			if m.layoutIndex ==
-				len(items)-1 {
+		case customizeWheel:
+			switch m.layoutIndex {
+			case 0:
+				m.cfg.Wheel.ResultSide = "left"
+				m.saveSettings()
+			case 1:
+				m.cfg.Wheel.ResultSide = "right"
+				m.saveSettings()
+			case 2:
+				m.page = pageCustomize
+			}
 
-				m.page =
-					pageCustomize
+		case customizeDyno:
+			switch m.layoutIndex {
+			case 0:
+				m.cfg.Dyno.GraphSide = "left"
+				m.saveSettings()
+			case 1:
+				m.cfg.Dyno.GraphSide = "right"
+				m.saveSettings()
+			case 2:
+				m.page = pageCustomize
 			}
 		}
 
 	case "esc":
-		m.page =
-			pageCustomize
+		m.page = pageCustomize
 	}
 
 	return m, nil
 }
 
 func (m model) layoutItems() []string {
-
 	switch m.customizeTool {
 
 	case customizeGear:
-
 		return []string{
 			"Automatic",
 			"Calculator left",
@@ -1140,21 +1351,53 @@ func (m model) layoutItems() []string {
 			"Back",
 		}
 
-	default:
-
+	case customizeCrank:
 		return []string{
-			"Layout settings for " +
-				customizeToolName(
-					m.customizeTool,
-				),
+			"Results left" + selectedSuffix(
+				m.cfg.Crank.Layout == "results-left",
+			),
+			"Results right" + selectedSuffix(
+				m.cfg.Crank.Layout == "results-right",
+			),
 			"Back",
 		}
+
+	case customizeWheel:
+		return []string{
+			"Results left" + selectedSuffix(
+				m.cfg.Wheel.ResultSide == "left",
+			),
+			"Results right" + selectedSuffix(
+				m.cfg.Wheel.ResultSide == "right",
+			),
+			"Back",
+		}
+
+	case customizeDyno:
+		return []string{
+			"Graph left" + selectedSuffix(
+				m.cfg.Dyno.GraphSide == "left",
+			),
+			"Graph right" + selectedSuffix(
+				m.cfg.Dyno.GraphSide == "right",
+			),
+			"Back",
+		}
+
+	default:
+		return []string{"Back"}
 	}
 }
 
-func (m *model) setLayout(mode string) {
+func (m *model) setLayout(
+	mode string,
+) {
+
 	m.cfg.Layout.Mode =
 		mode
+
+	m.referenceScroll =
+		0
 
 	m.saveSettings()
 }
@@ -1173,10 +1416,15 @@ func (m *model) toggleOrder() {
 			"reference-first"
 	}
 
+	m.referenceScroll =
+		m.clampReferenceScroll()
+
 	m.saveSettings()
 }
 
-func (m *model) cycleReferenceWidth(delta int) {
+func (m *model) cycleReferenceWidth(
+	delta int,
+) {
 
 	values :=
 		[]string{
@@ -1194,19 +1442,15 @@ func (m *model) cycleReferenceWidth(delta int) {
 		if value ==
 			m.cfg.Layout.ReferenceWidth {
 
-			current =
-				i
-
+			current = i
 			break
 		}
 	}
 
-	current +=
-		delta
+	current += delta
 
 	for current < 0 {
-		current +=
-			len(values)
+		current += len(values)
 	}
 
 	current %=
@@ -1214,6 +1458,9 @@ func (m *model) cycleReferenceWidth(delta int) {
 
 	m.cfg.Layout.ReferenceWidth =
 		values[current]
+
+	m.referenceScroll =
+		m.clampReferenceScroll()
 
 	m.saveSettings()
 }
@@ -1231,24 +1478,41 @@ func (m model) panelWidths(
 	switch m.cfg.Layout.ReferenceWidth {
 
 	case "50":
+
 		left =
 			width / 2
 
 	case "60":
+
 		left =
-			int(float64(width) * 0.60)
+			int(
+				float64(width) *
+					0.60,
+			)
 
 	case "70":
+
 		left =
-			int(float64(width) * 0.70)
+			int(
+				float64(width) *
+					0.70,
+			)
 
 	case "80":
+
 		left =
-			int(float64(width) * 0.80)
+			int(
+				float64(width) *
+					0.80,
+			)
 
 	case "balanced":
+
 		left =
-			int(float64(width) * 0.60)
+			int(
+				float64(width) *
+					0.60,
+			)
 	}
 
 	if left < 1 {
@@ -1284,14 +1548,245 @@ func (m model) effectiveLayout() string {
 }
 
 // ─────────────────────────────────────────────────────────────
+// Reference viewport
+// ─────────────────────────────────────────────────────────────
+
+func (m model) referencePanelHeight() int {
+
+	contentHeight :=
+		m.height - 4
+
+	if contentHeight < 1 {
+		contentHeight = 1
+	}
+
+	mode :=
+		m.effectiveLayout()
+
+	if mode != "stacked" {
+		return contentHeight
+	}
+
+	calculatorHeight :=
+		5
+
+	if contentHeight < 8 {
+		calculatorHeight =
+			contentHeight / 2
+	}
+
+	if calculatorHeight < 1 {
+		calculatorHeight = 1
+	}
+
+	referenceHeight :=
+		contentHeight -
+			calculatorHeight
+
+	if referenceHeight < 1 {
+		referenceHeight = 1
+	}
+
+	return referenceHeight
+}
+
+func (m model) referenceVisibleRows(
+	panelHeight int,
+) int {
+
+	// Header uses:
+	// title
+	// blank
+	// column header
+	// divider
+	// blank
+	rows :=
+		panelHeight - 5
+
+	if rows < 1 {
+		rows = 1
+	}
+
+	totalRows :=
+		m.cfg.Reference.MaximumGear -
+			m.cfg.Reference.SmallestGear +
+			1
+
+	if totalRows < 1 {
+		totalRows = 1
+	}
+
+	// Reserve one line for scroll indicators.
+	if totalRows > rows {
+		rows--
+	}
+
+	if rows < 1 {
+		rows = 1
+	}
+
+	return rows
+}
+
+func (m model) referenceMaxScroll() int {
+
+	panelHeight :=
+		m.referencePanelHeight()
+
+	visibleRows :=
+		m.referenceVisibleRows(
+			panelHeight,
+		)
+
+	totalRows :=
+		m.cfg.Reference.MaximumGear -
+			m.cfg.Reference.SmallestGear +
+			1
+
+	if totalRows < 1 {
+		return 0
+	}
+
+	maxScroll :=
+		totalRows -
+			visibleRows
+
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+
+	return maxScroll
+}
+
+func (m model) clampReferenceScroll() int {
+
+	maxScroll :=
+		m.referenceMaxScroll()
+
+	if m.referenceScroll < 0 {
+		return 0
+	}
+
+	if m.referenceScroll > maxScroll {
+		return maxScroll
+	}
+
+	return m.referenceScroll
+}
+
+func (m model) referenceMouseArea(
+	x int,
+	y int,
+) bool {
+
+	if !m.cfg.Reference.Enabled {
+		return false
+	}
+
+	mode :=
+		m.effectiveLayout()
+
+	contentHeight :=
+		m.height - 4
+
+	if contentHeight < 1 {
+		contentHeight = 1
+	}
+
+	// Main content starts after the two-line top bar.
+	if y < 2 ||
+		y >= 2+contentHeight {
+
+		return false
+	}
+
+	switch mode {
+
+	case "reference-only":
+
+		return true
+
+	case "calculator-only":
+
+		return false
+
+	case "stacked":
+
+		calculatorHeight :=
+			5
+
+		if contentHeight < 8 {
+			calculatorHeight =
+				contentHeight / 2
+		}
+
+		if calculatorHeight < 1 {
+			calculatorHeight = 1
+		}
+
+		referenceHeight :=
+			contentHeight -
+				calculatorHeight
+
+		if referenceHeight < 1 {
+			referenceHeight = 1
+		}
+
+		if m.cfg.Layout.Order ==
+			"calculator-first" {
+
+			referenceTop :=
+				2 +
+					calculatorHeight
+
+			return y >= referenceTop &&
+				y <
+					referenceTop+
+						referenceHeight
+		}
+
+		return y >= 2 &&
+			y <
+				2+
+					referenceHeight
+
+	case "calculator-left":
+
+		leftWidth,
+			_ :=
+			m.panelWidths(
+				m.width,
+			)
+
+		return x >= leftWidth+1 &&
+			x < m.width
+
+	default:
+
+		leftWidth,
+			_ :=
+			m.panelWidths(
+				m.width,
+			)
+
+		return x >= 0 &&
+			x < leftWidth
+	}
+}
+
+// ─────────────────────────────────────────────────────────────
 // Reference settings
 // ─────────────────────────────────────────────────────────────
 
-func (m model) updateReference(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+func (m model) updateReference(
+	msg tea.KeyPressMsg,
+) (tea.Model, tea.Cmd) {
 
 	items :=
 		[]string{
 			"Enabled",
+			"Smallest Gear",
+			"Maximum Gear",
 			"Teeth",
 			"Full Angle",
 			"Half Angle",
@@ -1301,12 +1796,139 @@ func (m model) updateReference(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			"Back",
 		}
 
+	if m.referenceSmallestInput.Focused() {
+
+		switch msg.String() {
+
+		case "enter":
+
+			value,
+				err :=
+				strconv.Atoi(
+					strings.TrimSpace(
+						m.referenceSmallestInput.Value(),
+					),
+				)
+
+			if err == nil &&
+				value >= 1 {
+
+				if value >
+					m.cfg.Reference.MaximumGear {
+
+					value =
+						m.cfg.Reference.MaximumGear
+				}
+
+				m.cfg.Reference.SmallestGear =
+					value
+
+				m.referenceSmallestInput.SetValue(
+					strconv.Itoa(value),
+				)
+
+				m.referenceScroll =
+					m.clampReferenceScroll()
+
+				m.saveSettings()
+			}
+
+			m.referenceSmallestInput.Blur()
+
+			return m, nil
+
+		case "esc":
+
+			m.referenceSmallestInput.SetValue(
+				strconv.Itoa(
+					m.cfg.Reference.SmallestGear,
+				),
+			)
+
+			m.referenceSmallestInput.Blur()
+
+			return m, nil
+		}
+
+		var cmd tea.Cmd
+
+		m.referenceSmallestInput,
+			cmd =
+			m.referenceSmallestInput.Update(msg)
+
+		return m, cmd
+	}
+
+	if m.referenceMaximumInput.Focused() {
+
+		switch msg.String() {
+
+		case "enter":
+
+			value,
+				err :=
+				strconv.Atoi(
+					strings.TrimSpace(
+						m.referenceMaximumInput.Value(),
+					),
+				)
+
+			if err == nil &&
+				value >= 1 {
+
+				if value <
+					m.cfg.Reference.SmallestGear {
+
+					value =
+						m.cfg.Reference.SmallestGear
+				}
+
+				m.cfg.Reference.MaximumGear =
+					value
+
+				m.referenceMaximumInput.SetValue(
+					strconv.Itoa(value),
+				)
+
+				m.referenceScroll =
+					m.clampReferenceScroll()
+
+				m.saveSettings()
+			}
+
+			m.referenceMaximumInput.Blur()
+
+			return m, nil
+
+		case "esc":
+
+			m.referenceMaximumInput.SetValue(
+				strconv.Itoa(
+					m.cfg.Reference.MaximumGear,
+				),
+			)
+
+			m.referenceMaximumInput.Blur()
+
+			return m, nil
+		}
+
+		var cmd tea.Cmd
+
+		m.referenceMaximumInput,
+			cmd =
+			m.referenceMaximumInput.Update(msg)
+
+		return m, cmd
+	}
+
 	switch msg.String() {
 
 	case "q", "ctrl+c":
 		return m, tea.Quit
 
 	case "up":
+
 		m.referenceIndex--
 
 		if m.referenceIndex < 0 {
@@ -1315,54 +1937,280 @@ func (m model) updateReference(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case "down":
+
 		m.referenceIndex++
 
-		if m.referenceIndex >= len(items) {
+		if m.referenceIndex >=
+			len(items) {
+
 			m.referenceIndex = 0
 		}
 
-	case "space", "enter":
+	case "enter", "space":
 
 		switch m.referenceIndex {
 
 		case 0:
+
 			m.cfg.Reference.Enabled =
 				!m.cfg.Reference.Enabled
 
+			m.referenceScroll = 0
+			m.saveSettings()
+
 		case 1:
+
+			m.referenceMaximumInput.Blur()
+
+			m.referenceSmallestInput.SetValue(
+				strconv.Itoa(
+					m.cfg.Reference.SmallestGear,
+				),
+			)
+
+			m.referenceSmallestInput.Focus()
+			m.referenceSmallestInput.CursorEnd()
+
+		case 2:
+
+			m.referenceSmallestInput.Blur()
+
+			m.referenceMaximumInput.SetValue(
+				strconv.Itoa(
+					m.cfg.Reference.MaximumGear,
+				),
+			)
+
+			m.referenceMaximumInput.Focus()
+			m.referenceMaximumInput.CursorEnd()
+
+		case 3:
+
 			m.cfg.Reference.Teeth =
 				!m.cfg.Reference.Teeth
 
-		case 2:
+			m.saveSettings()
+
+		case 4:
+
 			m.cfg.Reference.FullAngle =
 				!m.cfg.Reference.FullAngle
 
-		case 3:
+			m.saveSettings()
+
+		case 5:
+
 			m.cfg.Reference.HalfAngle =
 				!m.cfg.Reference.HalfAngle
 
-		case 4:
+			m.saveSettings()
+
+		case 6:
+
 			m.cfg.Reference.Offset =
 				!m.cfg.Reference.Offset
 
-		case 5:
+			m.saveSettings()
+
+		case 7:
+
 			m.cfg.Reference.CompressorValue =
 				!m.cfg.Reference.CompressorValue
 
-		case 6:
+			m.saveSettings()
+
+		case 8:
+
 			m.cfg.Reference.Compressors =
 				!m.cfg.Reference.Compressors
 
-		case 7:
+			m.saveSettings()
+
+		case 9:
+
 			m.page =
 				pageCustomize
-
-			return m, nil
 		}
+
+	case "esc":
+
+		m.referenceSmallestInput.Blur()
+		m.referenceMaximumInput.Blur()
+
+		m.page =
+			pageCustomize
+	}
+
+	return m, nil
+}
+
+// ─────────────────────────────────────────────────────────────
+// Reference settings mouse handling
+// ─────────────────────────────────────────────────────────────
+
+func (m model) handleReferenceMouse(
+	msg tea.MouseClickMsg,
+) (tea.Model, tea.Cmd) {
+
+	if msg.Button != tea.MouseLeft {
+		return m, nil
+	}
+
+	/*
+		Reference Chart menu:
+
+		0 Enabled
+		1 Smallest Gear
+		2 Maximum Gear
+		3 Teeth
+		4 Full Angle
+		5 Half Angle
+		6 Offset
+		7 Compressor Value
+		8 Compressors
+		9 Back
+	*/
+
+	height :=
+		m.height
+
+	width :=
+		m.width
+
+	if height < 1 {
+		height = 1
+	}
+
+	if width < 1 {
+		width = 1
+	}
+
+	boxHeight :=
+		20
+
+	if boxHeight >
+		height-2 {
+
+		boxHeight =
+			height - 2
+	}
+
+	if boxHeight < 1 {
+		boxHeight = 1
+	}
+
+	outerHeight :=
+		boxHeight +
+			4 +
+			2
+
+	boxTop :=
+		(height -
+			outerHeight) /
+			2
+
+	firstItemY :=
+		boxTop +
+			1 +
+			2 +
+			2
+
+	index :=
+		msg.Y -
+			firstItemY
+
+	if index < 0 ||
+		index > 9 {
+
+		return m, nil
+	}
+
+	m.referenceIndex =
+		index
+
+	switch index {
+
+	case 0:
+
+		m.cfg.Reference.Enabled =
+			!m.cfg.Reference.Enabled
+
+		m.referenceScroll = 0
+		m.saveSettings()
+
+	case 1:
+
+		m.referenceMaximumInput.Blur()
+
+		m.referenceSmallestInput.SetValue(
+			strconv.Itoa(
+				m.cfg.Reference.SmallestGear,
+			),
+		)
+
+		m.referenceSmallestInput.Focus()
+		m.referenceSmallestInput.CursorEnd()
+
+	case 2:
+
+		m.referenceSmallestInput.Blur()
+
+		m.referenceMaximumInput.SetValue(
+			strconv.Itoa(
+				m.cfg.Reference.MaximumGear,
+			),
+		)
+
+		m.referenceMaximumInput.Focus()
+		m.referenceMaximumInput.CursorEnd()
+
+	case 3:
+
+		m.cfg.Reference.Teeth =
+			!m.cfg.Reference.Teeth
 
 		m.saveSettings()
 
-	case "esc":
+	case 4:
+
+		m.cfg.Reference.FullAngle =
+			!m.cfg.Reference.FullAngle
+
+		m.saveSettings()
+
+	case 5:
+
+		m.cfg.Reference.HalfAngle =
+			!m.cfg.Reference.HalfAngle
+
+		m.saveSettings()
+
+	case 6:
+
+		m.cfg.Reference.Offset =
+			!m.cfg.Reference.Offset
+
+		m.saveSettings()
+
+	case 7:
+
+		m.cfg.Reference.CompressorValue =
+			!m.cfg.Reference.CompressorValue
+
+		m.saveSettings()
+
+	case 8:
+
+		m.cfg.Reference.Compressors =
+			!m.cfg.Reference.Compressors
+
+		m.saveSettings()
+
+	case 9:
+
+		m.referenceSmallestInput.Blur()
+		m.referenceMaximumInput.Blur()
+
 		m.page =
 			pageCustomize
 	}
@@ -1374,7 +2222,9 @@ func (m model) updateReference(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 // Calculator settings
 // ─────────────────────────────────────────────────────────────
 
-func (m model) updateCalculator(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+func (m model) updateCalculator(
+	msg tea.KeyPressMsg,
+) (tea.Model, tea.Cmd) {
 
 	items :=
 		[]string{
@@ -1395,6 +2245,7 @@ func (m model) updateCalculator(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 
 	case "up":
+
 		m.calculatorIndex--
 
 		if m.calculatorIndex < 0 {
@@ -1403,9 +2254,12 @@ func (m model) updateCalculator(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case "down":
+
 		m.calculatorIndex++
 
-		if m.calculatorIndex >= len(items) {
+		if m.calculatorIndex >=
+			len(items) {
+
 			m.calculatorIndex = 0
 		}
 
@@ -1414,38 +2268,47 @@ func (m model) updateCalculator(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		switch m.calculatorIndex {
 
 		case 0:
+
 			m.cfg.Calculator.Enabled =
 				!m.cfg.Calculator.Enabled
 
 		case 1:
+
 			m.cfg.Calculator.Teeth =
 				!m.cfg.Calculator.Teeth
 
 		case 2:
+
 			m.cfg.Calculator.Compressors =
 				!m.cfg.Calculator.Compressors
 
 		case 3:
+
 			m.cfg.Calculator.FullAngle =
 				!m.cfg.Calculator.FullAngle
 
 		case 4:
+
 			m.cfg.Calculator.HalfAngle =
 				!m.cfg.Calculator.HalfAngle
 
 		case 5:
+
 			m.cfg.Calculator.Offset =
 				!m.cfg.Calculator.Offset
 
 		case 6:
+
 			m.cfg.Calculator.CompressorValue =
 				!m.cfg.Calculator.CompressorValue
 
 		case 7:
+
 			m.cfg.Calculator.Warnings =
 				!m.cfg.Calculator.Warnings
 
 		case 8:
+
 			m.page =
 				pageCustomize
 
@@ -1455,6 +2318,7 @@ func (m model) updateCalculator(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.saveSettings()
 
 	case "esc":
+
 		m.page =
 			pageCustomize
 	}
@@ -1498,6 +2362,20 @@ func (m model) updateReset(
 			m.updateThemeIndex()
 			m.updateAccentIndex()
 
+			m.referenceScroll = 0
+
+			m.referenceSmallestInput.SetValue(
+				strconv.Itoa(
+					m.cfg.Reference.SmallestGear,
+				),
+			)
+
+			m.referenceMaximumInput.SetValue(
+				strconv.Itoa(
+					m.cfg.Reference.MaximumGear,
+				),
+			)
+
 			m.saveSettings()
 		}
 
@@ -1505,6 +2383,7 @@ func (m model) updateReset(
 			pageCustomize
 
 	case "esc":
+
 		m.page =
 			pageCustomize
 	}
@@ -1571,8 +2450,37 @@ func (m model) handleMouse(
 	msg tea.MouseClickMsg,
 ) (tea.Model, tea.Cmd) {
 
+	if msg.Button != tea.MouseLeft {
+		return m, nil
+	}
+
+	if m.page == pageHome {
+		// viewHome():
+		//   14 content rows
+		//   2 rows top padding
+		//   2 rows bottom padding
+		// Total rendered height = 18.
+		boxHeight := 18
+		boxTop := (m.height - boxHeight) / 2
+
+		// First menu item is content row 5.
+		firstItemY := boxTop + 7
+
+		index := msg.Y - firstItemY
+
+		if index >= 0 && index < 7 {
+			return m.openHomeItem(index)
+		}
+
+		return m, nil
+	}
+
 	if m.page == pageSetup {
 		return m.handleSetupMouse(msg)
+	}
+
+	if m.page == pageReference {
+		return m.handleReferenceMouse(msg)
 	}
 
 	if m.page == pageCrank {
@@ -1651,11 +2559,13 @@ func (m model) handleMouse(
 		if m.cfg.Layout.Order ==
 			"calculator-first" {
 
-			calculatorTop = 2
+			calculatorTop =
+				2
 		}
 
 		fieldY :=
-			calculatorTop + 1
+			calculatorTop +
+				1
 
 		if msg.Y ==
 			fieldY {
@@ -1729,11 +2639,15 @@ func (m model) handleMouse(
 		return m, nil
 	}
 
-	leftWidth, _ :=
-		m.panelWidths(width)
+	leftWidth,
+		_ :=
+		m.panelWidths(
+			width,
+		)
 
 	calculatorLeft :=
-		mode == "calculator-left"
+		mode ==
+			"calculator-left"
 
 	calculatorX :=
 		leftWidth + 1
@@ -1788,6 +2702,9 @@ func (m model) View() tea.View {
 
 	case pageSetup:
 		return m.viewSetup()
+
+	case pageMain:
+		return m.viewMain()
 
 	case pageCrank:
 		return m.viewCrank()
@@ -1945,11 +2862,11 @@ func (m model) renderMenu(
 		)
 
 	view :=
-		tea.NewView(output)
+		tea.NewView(
+			output,
+		)
 
-	view.AltScreen =
-		true
-
+	view.AltScreen = true
 	view.MouseMode =
 		tea.MouseModeCellMotion
 
@@ -1976,7 +2893,9 @@ func (m model) viewCustomize() tea.View {
 		)
 
 	return m.renderMenu(
-		customizeToolName(m.customizeTool)+" CUSTOMIZATION",
+		customizeToolName(
+			m.customizeTool,
+		)+" CUSTOMIZATION",
 		m.customizeItems(),
 		m.customIndex,
 		p,
@@ -2129,10 +3048,13 @@ func (m model) viewLayout() tea.View {
 	items :=
 		m.layoutItems()
 
-	if m.customizeTool != customizeGear {
+	if m.customizeTool !=
+		customizeGear {
 
 		return m.renderMenu(
-			customizeToolName(m.customizeTool)+" LAYOUT",
+			customizeToolName(
+				m.customizeTool,
+			)+" LAYOUT",
 			items,
 			m.layoutIndex,
 			p,
@@ -2152,32 +3074,38 @@ func (m model) viewLayout() tea.View {
 		[]string{
 			"Automatic" +
 				selectedSuffix(
-					mode == "automatic",
+					mode ==
+						"automatic",
 				),
 
 			"Calculator left" +
 				selectedSuffix(
-					mode == "calculator-left",
+					mode ==
+						"calculator-left",
 				),
 
 			"Calculator right" +
 				selectedSuffix(
-					mode == "calculator-right",
+					mode ==
+						"calculator-right",
 				),
 
 			"Calculator only" +
 				selectedSuffix(
-					mode == "calculator-only",
+					mode ==
+						"calculator-only",
 				),
 
 			"Reference only" +
 				selectedSuffix(
-					mode == "reference-only",
+					mode ==
+						"reference-only",
 				),
 
 			"Stacked" +
 				selectedSuffix(
-					mode == "stacked",
+					mode ==
+						"stacked",
 				),
 
 			"Reference width: " +
@@ -2205,13 +3133,36 @@ func (m model) viewReference() tea.View {
 			m.accent,
 		)
 
-	return m.renderMenu(
-		"REFERENCE CHART",
+	items :=
 		[]string{
 			"Enabled: " +
 				boolDisplay(
 					m.cfg.Reference.Enabled,
 				),
+
+			"Smallest Gear: " +
+				func() string {
+
+					if m.referenceSmallestInput.Focused() {
+						return m.referenceSmallestInput.View()
+					}
+
+					return strconv.Itoa(
+						m.cfg.Reference.SmallestGear,
+					)
+				}(),
+
+			"Maximum Gear: " +
+				func() string {
+
+					if m.referenceMaximumInput.Focused() {
+						return m.referenceMaximumInput.View()
+					}
+
+					return strconv.Itoa(
+						m.cfg.Reference.MaximumGear,
+					)
+				}(),
 
 			"Teeth: " +
 				boolDisplay(
@@ -2244,10 +3195,169 @@ func (m model) viewReference() tea.View {
 				),
 
 			"Back",
-		},
+		}
+
+	return m.renderReferenceMenu(
+		"REFERENCE CHART",
+		items,
 		m.referenceIndex,
 		p,
 	)
+}
+
+func (m model) renderReferenceMenu(
+	title string,
+	items []string,
+	selected int,
+	p palette,
+) tea.View {
+
+	width :=
+		m.width
+
+	height :=
+		m.height
+
+	if width < 1 {
+		width = 1
+	}
+
+	if height < 1 {
+		height = 1
+	}
+
+	boxHeight :=
+		20
+
+	if boxHeight >
+		height-2 {
+
+		boxHeight =
+			height - 2
+	}
+
+	if boxHeight < 1 {
+		boxHeight = 1
+	}
+
+	var lines []string
+
+	titleStyle :=
+		lipgloss.NewStyle().
+			Bold(true).
+			Foreground(p.accent)
+
+	textStyle :=
+		lipgloss.NewStyle().
+			Foreground(p.text)
+
+	selectedStyle :=
+		lipgloss.NewStyle().
+			Foreground(p.accent).
+			Background(p.surface).
+			Bold(true)
+
+	lines =
+		append(
+			lines,
+			titleStyle.Render(title),
+			"",
+		)
+
+	for i, item := range items {
+
+		prefix :=
+			"  "
+
+		style :=
+			textStyle
+
+		if i == selected {
+
+			prefix =
+				"> "
+
+			style =
+				selectedStyle
+		}
+
+		lines =
+			append(
+				lines,
+				style.Render(
+					prefix+item,
+				),
+			)
+	}
+
+	lines =
+		append(
+			lines,
+			"",
+			lipgloss.NewStyle().
+				Foreground(p.muted).
+				Render(
+					"[↑↓] Select    [ENTER] Edit    [ESC] Back",
+				),
+		)
+
+	boxWidth :=
+		76
+
+	if boxWidth >
+		width-4 {
+
+		boxWidth =
+			width - 4
+	}
+
+	if boxWidth < 20 {
+		boxWidth = width
+	}
+
+	box :=
+		lipgloss.NewStyle().
+			Width(boxWidth).
+			Height(boxHeight).
+			Padding(2, 3).
+			Background(p.panel).
+			Border(
+				lipgloss.NormalBorder(),
+			).
+			BorderForeground(p.border).
+			Render(
+				strings.Join(
+					lines,
+					"\n",
+				),
+			)
+
+	output :=
+		lipgloss.Place(
+			width,
+			height,
+			lipgloss.Center,
+			lipgloss.Center,
+			box,
+		)
+
+	view :=
+		tea.NewView(
+			output,
+		)
+
+	view.AltScreen = true
+	view.MouseMode =
+		tea.MouseModeCellMotion
+
+	if m.cfg.Appearance.Background !=
+		"transparent" {
+
+		view.BackgroundColor =
+			p.background
+	}
+
+	return view
 }
 
 func (m model) viewCalculator() tea.View {
@@ -2420,11 +3530,11 @@ func (m model) viewAbout() tea.View {
 		)
 
 	view :=
-		tea.NewView(output)
+		tea.NewView(
+			output,
+		)
 
-	view.AltScreen =
-		true
-
+	view.AltScreen = true
 	view.MouseMode =
 		tea.MouseModeCellMotion
 
@@ -2436,6 +3546,202 @@ func (m model) viewAbout() tea.View {
 	}
 
 	return view
+}
+
+// ─────────────────────────────────────────────────────────────
+// Reference content builder
+// ─────────────────────────────────────────────────────────────
+
+func (m model) referenceContent(
+	panelHeight int,
+	p palette,
+) string {
+
+	sectionStyle :=
+		lipgloss.NewStyle().
+			Bold(true).
+			Foreground(p.accent)
+
+	var lines []string
+
+	lines =
+		append(
+			lines,
+			sectionStyle.Render(
+				fmt.Sprintf(
+					"REFERENCE / %d–%d TEETH",
+					m.cfg.Reference.SmallestGear,
+					m.cfg.Reference.MaximumGear,
+				),
+			),
+			"",
+		)
+
+	columns :=
+		referenceColumns(
+			m.cfg.Reference,
+		)
+
+	if len(columns) == 0 {
+		return strings.Join(
+			lines,
+			"\n",
+		)
+	}
+
+	lines =
+		append(
+			lines,
+			buildReferenceHeader(
+				columns,
+			),
+			buildReferenceDivider(
+				columns,
+			),
+			"",
+		)
+
+	minGear :=
+		m.cfg.Reference.SmallestGear
+
+	maxGear :=
+		m.cfg.Reference.MaximumGear
+
+	totalRows :=
+		maxGear -
+			minGear +
+			1
+
+	if totalRows < 1 {
+		totalRows = 1
+	}
+
+	visibleRows :=
+		panelHeight - 5
+
+	if visibleRows < 1 {
+		visibleRows = 1
+	}
+
+	needsScroll :=
+		totalRows >
+			visibleRows
+
+	if needsScroll {
+		visibleRows--
+
+		if visibleRows < 1 {
+			visibleRows = 1
+		}
+	}
+
+	maxScroll :=
+		totalRows -
+			visibleRows
+
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+
+	scroll :=
+		m.referenceScroll
+
+	if scroll < 0 {
+		scroll = 0
+	}
+
+	if scroll > maxScroll {
+		scroll = maxScroll
+	}
+
+	startGear :=
+		minGear +
+			scroll
+
+	endGear :=
+		startGear +
+			visibleRows -
+			1
+
+	if endGear > maxGear {
+		endGear =
+			maxGear
+	}
+
+	for n :=
+		startGear; n <= endGear; n++ {
+
+		f,
+			h,
+			o :=
+			Calculate(n)
+
+		c :=
+			AutoCompressors(o)
+
+		cv :=
+			Round3(
+				CompressorValue(
+					o,
+					c,
+				),
+			)
+
+		lines =
+			append(
+				lines,
+				buildReferenceRow(
+					n,
+					f,
+					h,
+					o,
+					cv,
+					c,
+					columns,
+				),
+			)
+	}
+
+	if needsScroll {
+
+		indicator :=
+			""
+
+		if scroll > 0 {
+			indicator =
+				"↑ more gears above"
+		}
+
+		if scroll < maxScroll {
+
+			if indicator != "" {
+				indicator +=
+					"    "
+			}
+
+			indicator +=
+				"↓ more gears below"
+		}
+
+		if indicator != "" {
+			lines =
+				append(
+					lines,
+					indicator,
+				)
+		}
+	}
+
+	// Hard vertical bound.
+	if len(lines) > panelHeight {
+		lines =
+			lines[:panelHeight]
+	}
+
+	return strings.Join(
+		lines,
+		"\n",
+	)
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -2482,7 +3788,9 @@ func (m model) viewMain() tea.View {
 		)
 
 	roundedValue :=
-		Round3(compressorValue)
+		Round3(
+			compressorValue,
+		)
 
 	sectionStyle :=
 		lipgloss.NewStyle().
@@ -2509,7 +3817,9 @@ func (m model) viewMain() tea.View {
 			"transparent" {
 
 		fieldStyle =
-			fieldStyle.Background(p.surface)
+			fieldStyle.Background(
+				p.surface,
+			)
 	}
 
 	focusedFieldStyle :=
@@ -2539,17 +3849,25 @@ func (m model) viewMain() tea.View {
 			"transparent" {
 
 		titleStyle =
-			titleStyle.Background(p.surface)
+			titleStyle.Background(
+				p.surface,
+			)
 
 		authorStyle =
-			authorStyle.Background(p.surface)
+			authorStyle.Background(
+				p.surface,
+			)
 	}
 
 	title :=
-		titleStyle.Render(titleText)
+		titleStyle.Render(
+			titleText,
+		)
 
 	author :=
-		authorStyle.Render(authorText)
+		authorStyle.Render(
+			authorText,
+		)
 
 	gap :=
 		width -
@@ -2568,7 +3886,9 @@ func (m model) viewMain() tea.View {
 			"transparent" {
 
 		gapStyle =
-			gapStyle.Background(p.surface)
+			gapStyle.Background(
+				p.surface,
+			)
 	}
 
 	topContent :=
@@ -2634,80 +3954,52 @@ func (m model) viewMain() tea.View {
 			topSecond,
 		)
 
-	var reference strings.Builder
+	contentHeight :=
+		height - 4
+
+	if contentHeight < 1 {
+		contentHeight = 1
+	}
+
+	mode :=
+		m.effectiveLayout()
+
+	var reference string
 
 	if m.cfg.Reference.Enabled {
 
-		reference.WriteString(
-			sectionStyle.Render(
-				"REFERENCE / 4–20 TEETH",
-			),
-		)
+		referencePanelHeight :=
+			contentHeight
 
-		reference.WriteString(
-			"\n\n",
-		)
+		if mode ==
+			"stacked" {
 
-		columns :=
-			referenceColumns(
-				m.cfg.Reference,
-			)
+			calculatorHeight :=
+				5
 
-		if len(columns) > 0 {
+			if contentHeight < 8 {
+				calculatorHeight =
+					contentHeight / 2
+			}
 
-			reference.WriteString(
-				buildReferenceHeader(
-					columns,
-				),
-			)
+			if calculatorHeight < 1 {
+				calculatorHeight = 1
+			}
 
-			reference.WriteString("\n")
+			referencePanelHeight =
+				contentHeight -
+					calculatorHeight
 
-			reference.WriteString(
-				buildReferenceDivider(
-					columns,
-				),
-			)
-
-			reference.WriteString("\n")
-
-			for n := 4; n <= 20; n++ {
-
-				f,
-					h,
-					o :=
-					Calculate(n)
-
-				c :=
-					AutoCompressors(o)
-
-				cv :=
-					Round3(
-						CompressorValue(
-							o,
-							c,
-						),
-					)
-
-				reference.WriteString(
-					buildReferenceRow(
-						n,
-						f,
-						h,
-						o,
-						cv,
-						c,
-						columns,
-					),
-				)
-
-				if n != 20 {
-					reference.WriteString(
-						"\n",
-					)
-				}
+			if referencePanelHeight < 1 {
+				referencePanelHeight = 1
 			}
 		}
+
+		reference =
+			m.referenceContent(
+				referencePanelHeight,
+				p,
+			)
 	}
 
 	var calculatorLines []string
@@ -2747,13 +4039,12 @@ func (m model) viewMain() tea.View {
 					)
 			}
 
-			label :=
-				"NUMBER OF TEETH"
-
 			calculatorLines =
 				append(
 					calculatorLines,
-					labelStyle.Render(label),
+					labelStyle.Render(
+						"NUMBER OF TEETH",
+					),
 					field,
 				)
 
@@ -2796,8 +4087,12 @@ func (m model) viewMain() tea.View {
 				calculatorLines =
 					append(
 						calculatorLines,
-						labelStyle.Render(label),
-						valueStyle.Render(value),
+						labelStyle.Render(
+							label,
+						),
+						valueStyle.Render(
+							value,
+						),
 					)
 
 				addGap()
@@ -2805,11 +4100,8 @@ func (m model) viewMain() tea.View {
 
 		if m.cfg.Calculator.FullAngle {
 
-			label :=
-				"FULL ANGLE"
-
 			appendValue(
-				label,
+				"FULL ANGLE",
 				fmt.Sprintf(
 					"%.3f°",
 					full,
@@ -2819,11 +4111,8 @@ func (m model) viewMain() tea.View {
 
 		if m.cfg.Calculator.HalfAngle {
 
-			label :=
-				"HALF ANGLE"
-
 			appendValue(
-				label,
+				"HALF ANGLE",
 				fmt.Sprintf(
 					"%.3f°",
 					half,
@@ -2844,11 +4133,8 @@ func (m model) viewMain() tea.View {
 
 		if m.cfg.Calculator.CompressorValue {
 
-			label :=
-				"COMPRESSOR VALUE"
-
 			appendValue(
-				label,
+				"COMPRESSOR VALUE",
 				fmt.Sprintf(
 					"%.3f",
 					roundedValue,
@@ -2903,16 +4189,6 @@ func (m model) viewMain() tea.View {
 			"\n",
 		)
 
-	contentHeight :=
-		height - 4
-
-	if contentHeight < 1 {
-		contentHeight = 1
-	}
-
-	mode :=
-		m.effectiveLayout()
-
 	if !m.cfg.Reference.Enabled &&
 		!m.cfg.Calculator.Enabled {
 
@@ -2935,7 +4211,8 @@ func (m model) viewMain() tea.View {
 		)
 	}
 
-	if mode == "calculator-only" ||
+	if mode ==
+		"calculator-only" ||
 		!m.cfg.Reference.Enabled {
 
 		return m.renderSinglePanel(
@@ -2949,12 +4226,13 @@ func (m model) viewMain() tea.View {
 		)
 	}
 
-	if mode == "reference-only" ||
+	if mode ==
+		"reference-only" ||
 		!m.cfg.Calculator.Enabled {
 
 		return m.renderSinglePanel(
 			topBar,
-			reference.String(),
+			reference,
 			width,
 			height,
 			contentHeight,
@@ -2987,7 +4265,7 @@ func (m model) viewMain() tea.View {
 
 		referencePanel :=
 			m.renderPanel(
-				reference.String(),
+				reference,
 				width,
 				referenceHeight,
 				p,
@@ -3042,10 +4320,12 @@ func (m model) viewMain() tea.View {
 
 	leftWidth,
 		rightWidth :=
-		m.panelWidths(width)
+		m.panelWidths(
+			width,
+		)
 
 	leftText :=
-		reference.String()
+		reference
 
 	rightText :=
 		calculator
@@ -3056,13 +4336,14 @@ func (m model) viewMain() tea.View {
 	rightTransparent :=
 		m.cfg.Appearance.CalculatorTransparent
 
-	if mode == "calculator-left" {
+	if mode ==
+		"calculator-left" {
 
 		leftText =
 			calculator
 
 		rightText =
-			reference.String()
+			reference
 
 		leftTransparent =
 			m.cfg.Appearance.CalculatorTransparent
@@ -3157,7 +4438,9 @@ func (m model) renderStackedCalculator(
 		lipgloss.NewStyle().
 			Bold(true).
 			Foreground(p.accent).
-			Render("CALCULATOR")
+			Render(
+				"CALCULATOR",
+			)
 
 	type calcItem struct {
 		label string
@@ -3330,7 +4613,9 @@ func (m model) renderStackedCalculator(
 				lipgloss.NewStyle().
 					Bold(true).
 					Foreground(p.muted).
-					Render(item.label),
+					Render(
+						item.label,
+					),
 				value,
 			)
 
@@ -3433,11 +4718,11 @@ func (m model) renderMainWithBottom(
 		)
 
 	view :=
-		tea.NewView(output)
+		tea.NewView(
+			output,
+		)
 
-	view.AltScreen =
-		true
-
+	view.AltScreen = true
 	view.MouseMode =
 		tea.MouseModeCellMotion
 
@@ -3523,11 +4808,11 @@ func (m model) renderSinglePanel(
 		)
 
 	view :=
-		tea.NewView(output)
+		tea.NewView(
+			output,
+		)
 
-	view.AltScreen =
-		true
-
+	view.AltScreen = true
 	view.MouseMode =
 		tea.MouseModeCellMotion
 
@@ -3590,6 +4875,7 @@ func referenceColumns(
 	var columns []refColumn
 
 	if cfg.Teeth {
+
 		columns =
 			append(
 				columns,
@@ -3598,6 +4884,7 @@ func referenceColumns(
 	}
 
 	if cfg.FullAngle {
+
 		columns =
 			append(
 				columns,
@@ -3606,6 +4893,7 @@ func referenceColumns(
 	}
 
 	if cfg.HalfAngle {
+
 		columns =
 			append(
 				columns,
@@ -3614,6 +4902,7 @@ func referenceColumns(
 	}
 
 	if cfg.Offset {
+
 		columns =
 			append(
 				columns,
@@ -3622,6 +4911,7 @@ func referenceColumns(
 	}
 
 	if cfg.CompressorValue {
+
 		columns =
 			append(
 				columns,
@@ -3630,6 +4920,7 @@ func referenceColumns(
 	}
 
 	if cfg.Compressors {
+
 		columns =
 			append(
 				columns,
@@ -3866,7 +5157,10 @@ func buildReferenceRow(
 // Display helpers
 // ─────────────────────────────────────────────────────────────
 
-func boolDisplay(value bool) string {
+func boolDisplay(
+	value bool,
+) string {
+
 	if value {
 		return "[ON]"
 	}
@@ -3874,7 +5168,10 @@ func boolDisplay(value bool) string {
 	return "[OFF]"
 }
 
-func selectedSuffix(value bool) string {
+func selectedSuffix(
+	value bool,
+) string {
+
 	if value {
 		return " [SELECTED]"
 	}
@@ -3882,7 +5179,9 @@ func selectedSuffix(value bool) string {
 	return ""
 }
 
-func layoutWidthDisplay(value string) string {
+func layoutWidthDisplay(
+	value string,
+) string {
 
 	switch value {
 
@@ -3903,7 +5202,9 @@ func layoutWidthDisplay(value string) string {
 	}
 }
 
-func orderDisplay(value string) string {
+func orderDisplay(
+	value string,
+) string {
 
 	if value ==
 		"calculator-first" {
@@ -3914,7 +5215,9 @@ func orderDisplay(value string) string {
 	return "Reference first"
 }
 
-func themeDisplayName(key string) string {
+func themeDisplayName(
+	key string,
+) string {
 
 	for i, value := range themeKeys {
 
@@ -3928,7 +5231,9 @@ func themeDisplayName(key string) string {
 	return "Catppuccin Mocha"
 }
 
-func accentDisplayName(key string) string {
+func accentDisplayName(
+	key string,
+) string {
 
 	for i, value := range accentKeys {
 
