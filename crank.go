@@ -232,24 +232,48 @@ func (m model) handleCrankMouse(
 		return m, nil
 	}
 
-	panelHeight := m.height - 2
+	width := m.width
+	height := m.height
 
+	if width < 1 {
+		width = 1
+	}
+
+	if height < 1 {
+		height = 1
+	}
+
+	panelHeight := height - 2
 	if panelHeight < 1 {
 		panelHeight = 1
 	}
 
-	leftWidth := m.width / 2
+	leftWidth := width / 2
 
 	if leftWidth < 30 {
 		leftWidth = 30
 	}
 
-	if leftWidth > m.width-20 {
-		leftWidth = m.width - 20
+	if leftWidth > width-20 {
+		leftWidth = width - 20
 	}
 
 	if leftWidth < 1 {
 		leftWidth = 1
+	}
+
+	rightWidth := width - leftWidth - 1
+	if rightWidth < 1 {
+		rightWidth = 1
+	}
+
+	// The input/control panel is normally on the left.
+	// When results are configured on the left, the input panel
+	// moves to the right.
+	inputX := 0
+
+	if m.cfg.Crank.Layout == "results-left" {
+		inputX = leftWidth + 1
 	}
 
 	contentY := msg.Y - 2
@@ -259,7 +283,11 @@ func (m model) handleCrankMouse(
 		return m, nil
 	}
 
-	if msg.X < 2 || msg.X >= leftWidth-2 {
+	// Keep the same vertical positions used by the rendered
+	// control panel.
+	if msg.X < inputX+2 ||
+		msg.X >= inputX+leftWidth-2 {
+
 		m.crankCylinderInput.Blur()
 		return m, nil
 	}
@@ -281,12 +309,7 @@ func (m model) handleCrankMouse(
 		m.crankLayoutIndex = int(crankBoxer)
 		return m, nil
 
-	case 9:
-		m.crankCylinderInput.Focus()
-		m.crankCylinderInput.CursorEnd()
-		return m, textinput.Blink
-
-	case 10:
+	case 9, 10:
 		m.crankCylinderInput.Focus()
 		m.crankCylinderInput.CursorEnd()
 		return m, textinput.Blink

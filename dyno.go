@@ -650,73 +650,89 @@ func (m model) handleDynoMouse(
 		return m, nil
 	}
 
+	width := m.width
+
+	if width < 1 {
+		width = 1
+	}
+
+	leftWidth := width * 4 / 10
+
+	if leftWidth < 36 {
+		leftWidth = 36
+	}
+
+	if leftWidth > width-20 {
+		leftWidth = width - 20
+	}
+
+	if leftWidth < 1 {
+		leftWidth = 1
+	}
+
+	rightWidth := width - leftWidth - 1
+
+	if rightWidth < 1 {
+		rightWidth = 1
+	}
+
+	// The data panel is normally on the left.
+	// When the graph is configured on the left, the data
+	// panel moves to the right.
+	dataPanelX := 0
+
+	if m.cfg.Dyno.GraphSide == "left" {
+		dataPanelX = rightWidth + 1
+	}
+
 	const (
 		firstRowY = dynoFirstRowY
 		rowStep   = dynoRowStep
-
-		spsX1    = dynoSPSX
-		spsX2    = dynoSPSX + dynoFieldWidth
-		torqueX1 = dynoTorqueX
-		torqueX2 = dynoTorqueX + dynoFieldWidth
 	)
 
-	visible :=
-		m.dynoVisibleCount()
+	spsX1 := dataPanelX + dynoSPSX
+	spsX2 := dataPanelX + dynoSPSX + dynoFieldWidth + 2
+
+	torqueX1 := dataPanelX + dynoTorqueX
+	torqueX2 := dataPanelX + dynoTorqueX + dynoFieldWidth + 2
+
+	visible := m.dynoVisibleCount()
 
 	for visibleRow := 0; visibleRow < visible; visibleRow++ {
 
-		screenY :=
-			firstRowY +
-				visibleRow*rowStep
+		screenY := firstRowY + visibleRow*rowStep
 
 		if msg.Y != screenY {
 			continue
 		}
 
-		row :=
-			m.dynoScroll +
-				visibleRow
+		row := m.dynoScroll + visibleRow
 
-		if row < 0 ||
-			row >= len(m.dynoPoints) {
-
+		if row < 0 || row >= len(m.dynoPoints) {
 			return m, nil
 		}
 
-		if msg.X >= spsX1 &&
-			msg.X < spsX2 {
-
-			return m,
-				m.dynoFocusField(
-					row * 2,
-				)
+		if msg.X >= spsX1 && msg.X < spsX2 {
+			return m, m.dynoFocusField(row * 2)
 		}
 
-		if msg.X >= torqueX1 &&
-			msg.X < torqueX2 {
-
-			return m,
-				m.dynoFocusField(
-					row*2 + 1,
-				)
+		if msg.X >= torqueX1 && msg.X < torqueX2 {
+			return m, m.dynoFocusField(row*2 + 1)
 		}
 
 		m.dynoBlurAll()
-
 		return m, nil
 	}
 
-	buttonY :=
-		firstRowY +
-			visible*rowStep
+	// Add Row button is also inside the data panel.
+	buttonY := firstRowY + visible*rowStep
 
 	if msg.Y == buttonY &&
-		msg.X >= 5 &&
-		msg.X <= 19 {
+		msg.X >= dataPanelX+5 &&
+		msg.X <= dataPanelX+19 {
 
 		m.dynoBlurAll()
 		m.dynoAddRow()
-
 		return m, nil
 	}
 

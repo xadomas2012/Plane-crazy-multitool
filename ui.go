@@ -19,6 +19,7 @@ const (
 	pageCrank
 	pageWheel
 	pageDyno
+	pagePiston
 	pageCustomize
 	pageToolCustomizeSelect
 	pageAppearance
@@ -39,6 +40,7 @@ const (
 	customizeCrank
 	customizeWheel
 	customizeDyno
+	customizePiston
 )
 
 func customizeToolName(tool customizeTool) string {
@@ -51,6 +53,8 @@ func customizeToolName(tool customizeTool) string {
 		return "Wheel Calculator"
 	case customizeDyno:
 		return "Dyno"
+	case customizePiston:
+		return "Piston Length Calculator"
 	default:
 		return "Unknown"
 	}
@@ -66,6 +70,8 @@ func customizeToolPage(tool customizeTool) page {
 		return pageWheel
 	case customizeDyno:
 		return pageDyno
+	case customizePiston:
+		return pagePiston
 	default:
 		return pageHome
 	}
@@ -108,6 +114,10 @@ type model struct {
 
 	wheelIndex     int
 	wheelTireInput textinput.Model
+
+	pistonDistanceInput textinput.Model
+	pistonAmountInput   textinput.Model
+	pistonFieldIndex    int
 
 	dynoPoints     []dynoPoint
 	dynoFieldIndex int
@@ -162,10 +172,12 @@ func initialModel() model {
 		referenceMaximumInput:  referenceMaximumInput,
 		referenceScroll:        0,
 
-		crankCylinderInput: crankInput(6),
-		wheelTireInput:     wheelInput(10),
-		dynoPoints:         initialDynoPoints(),
-		setupExportInput:   setupInput,
+		crankCylinderInput:  crankInput(6),
+		wheelTireInput:      wheelInput(10),
+		pistonDistanceInput: newInput("1"),
+		pistonAmountInput:   newInput("2"),
+		dynoPoints:          initialDynoPoints(),
+		setupExportInput:    setupInput,
 
 		page:   pageHome,
 		width:  100,
@@ -188,15 +200,6 @@ func initialModel() model {
 
 	m.updateThemeIndex()
 	m.updateAccentIndex()
-
-	switch cfg.Crank.Layout {
-	case "v":
-		m.crankLayoutIndex = int(crankV)
-	case "boxer":
-		m.crankLayoutIndex = int(crankBoxer)
-	default:
-		m.crankLayoutIndex = int(crankInline)
-	}
 
 	if !cfg.SetupCompleted {
 		m.page = pageSetup
@@ -276,6 +279,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case pageDyno:
 			return m.updateDyno(msg)
 
+		case pagePiston:
+			return m.updatePiston(msg)
+
 		case pageCustomize:
 			return m.updateCustomize(msg)
 
@@ -335,12 +341,14 @@ func (m model) updateHome(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		"Crank Angle Calculator",
 		"Wheel Calculator",
 		"Dyno",
+		"Piston Length Calculator",
 		"Settings",
 		"About",
 		"Quit",
 	}
 
 	switch msg.String() {
+
 	case "q", "ctrl+c":
 		return m, tea.Quit
 
@@ -367,19 +375,19 @@ func (m model) openHomeItem(index int) (tea.Model, tea.Cmd) {
 	m.homeIndex = index
 
 	switch index {
+
 	case 0:
 		m.stopEditing()
+		m.referenceScroll = 0
 		m.page = pageMain
 
 	case 1:
 		m.stopEditing()
 		m.crankLayoutIndex = int(crankInline)
-		m.crankCylinderInput.Blur()
 		m.page = pageCrank
 
 	case 2:
 		m.stopEditing()
-		m.wheelTireInput.Blur()
 		m.page = pageWheel
 
 	case 3:
@@ -389,15 +397,20 @@ func (m model) openHomeItem(index int) (tea.Model, tea.Cmd) {
 
 	case 4:
 		m.stopEditing()
+		m.pistonFieldIndex = 0
+		m.page = pagePiston
+
+	case 5:
+		m.stopEditing()
 		m.customToolIndex = 0
 		m.customIndex = 0
 		m.page = pageToolCustomizeSelect
 
-	case 5:
+	case 6:
 		m.stopEditing()
 		m.page = pageAbout
 
-	case 6:
+	case 7:
 		return m, tea.Quit
 	}
 
@@ -428,6 +441,7 @@ func (m model) viewHome() tea.View {
 		"Crank Angle Calculator",
 		"Wheel Calculator",
 		"Dyno",
+		"Piston Length Calculator",
 		"Settings",
 		"About",
 		"Quit",
@@ -660,6 +674,8 @@ func (m *model) stopEditing() {
 	m.compressorInput.Blur()
 	m.crankCylinderInput.Blur()
 	m.wheelTireInput.Blur()
+	m.pistonDistanceInput.Blur()
+	m.pistonAmountInput.Blur()
 
 	m.referenceSmallestInput.Blur()
 	m.referenceMaximumInput.Blur()
@@ -867,7 +883,8 @@ func (m model) customizeItems() []string {
 
 	case customizeCrank,
 		customizeWheel,
-		customizeDyno:
+		customizeDyno,
+		customizePiston:
 
 		return []string{
 			"Appearance",
@@ -1326,6 +1343,20 @@ func (m model) updateLayout(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			case 2:
 				m.page = pageCustomize
 			}
+
+		case customizePiston:
+			switch m.layoutIndex {
+			case 0:
+				m.cfg.Piston.ResultSide = "left"
+				m.saveSettings()
+
+			case 1:
+				m.cfg.Piston.ResultSide = "right"
+				m.saveSettings()
+
+			case 2:
+				m.page = pageCustomize
+			}
 		}
 
 	case "esc":
@@ -1380,6 +1411,17 @@ func (m model) layoutItems() []string {
 			),
 			"Graph right" + selectedSuffix(
 				m.cfg.Dyno.GraphSide == "right",
+			),
+			"Back",
+		}
+
+	case customizePiston:
+		return []string{
+			"Results left" + selectedSuffix(
+				m.cfg.Piston.ResultSide == "left",
+			),
+			"Results right" + selectedSuffix(
+				m.cfg.Piston.ResultSide == "right",
 			),
 			"Back",
 		}
@@ -2494,6 +2536,9 @@ func (m model) handleMouse(
 	if m.page == pageDyno {
 		return m.handleDynoMouse(msg)
 	}
+	if m.page == pagePiston {
+		return m.handlePistonMouse(msg)
+	}
 
 	if msg.Button !=
 		tea.MouseLeft {
@@ -2714,6 +2759,8 @@ func (m model) View() tea.View {
 
 	case pageDyno:
 		return m.viewDyno()
+	case pagePiston:
+		return m.viewPiston()
 
 	case pageCustomize:
 		return m.viewCustomize()

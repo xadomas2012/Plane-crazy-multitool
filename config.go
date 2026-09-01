@@ -14,6 +14,7 @@ type config struct {
 	Crank      crankConfig      `json:"crank"`
 	Dyno       dynoConfig       `json:"dyno"`
 	Wheel      wheelConfig      `json:"wheel"`
+	Piston     pistonConfig     `json:"piston"`
 
 	SetupCompleted  bool   `json:"setup_completed"`
 	ExportDirectory string `json:"export_directory"`
@@ -56,6 +57,10 @@ type dynoConfig struct {
 }
 
 type wheelConfig struct {
+	ResultSide string `json:"result_side"`
+}
+
+type pistonConfig struct {
 	ResultSide string `json:"result_side"`
 }
 
@@ -122,6 +127,10 @@ func defaultConfig() config {
 		},
 
 		Wheel: wheelConfig{
+			ResultSide: "right",
+		},
+
+		Piston: pistonConfig{
 			ResultSide: "right",
 		},
 
@@ -303,6 +312,12 @@ func normalizeConfig(
 			cfg.Reference.MaximumGear =
 				cfg.Reference.SmallestGear
 		}
+	}
+
+	if cfg.Piston.ResultSide != "left" &&
+		cfg.Piston.ResultSide != "right" {
+		cfg.Piston.ResultSide =
+			defaults.Piston.ResultSide
 	}
 
 	return cfg

@@ -184,40 +184,64 @@ func (m model) handleWheelMouse(
 		return m, nil
 	}
 
-	width :=
-		m.width
+	width := m.width
+	height := m.height
 
 	if width < 1 {
 		width = 1
 	}
 
-	panelWidth :=
-		width / 2
-
-	if panelWidth < 30 {
-		panelWidth = 30
+	if height < 1 {
+		height = 1
 	}
 
-	if panelWidth > width-20 {
-		panelWidth = width - 20
+	panelHeight := height - 2
+	if panelHeight < 1 {
+		panelHeight = 1
 	}
 
-	if panelWidth < 1 {
-		panelWidth = 1
+	leftWidth := width / 2
+
+	if leftWidth < 30 {
+		leftWidth = 30
 	}
 
-	contentY :=
-		msg.Y - 2
+	if leftWidth > width-20 {
+		leftWidth = width - 20
+	}
 
-	if msg.X >= 2 &&
-		msg.X < panelWidth-2 {
+	if leftWidth < 1 {
+		leftWidth = 1
+	}
+
+	rightWidth := width - leftWidth - 1
+	if rightWidth < 1 {
+		rightWidth = 1
+	}
+
+	// The input panel is normally on the left.
+	// When results are configured on the left, the input
+	// panel moves to the right.
+	inputX := 0
+
+	if m.cfg.Wheel.ResultSide == "left" {
+		inputX = leftWidth + 1
+	}
+
+	contentY := msg.Y - 2
+
+	if contentY < 0 || contentY >= panelHeight {
+		m.wheelTireInput.Blur()
+		return m, nil
+	}
+
+	if msg.X >= inputX+2 &&
+		msg.X < inputX+leftWidth-2 {
 
 		switch contentY {
-
 		case 3, 4:
 			m.wheelTireInput.Focus()
 			m.wheelTireInput.CursorEnd()
-
 			return m, textinput.Blink
 		}
 	}
