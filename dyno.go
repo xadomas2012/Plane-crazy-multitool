@@ -7,6 +7,7 @@ import (
 	"image/png"
 	"math"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -45,6 +46,7 @@ type dynoGraphPoint struct {
 	SPS    float64
 	RPM    float64
 	Torque float64
+	BHP    float64
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -96,7 +98,6 @@ func dynoParseFloat(value string) (float64, bool) {
 	}
 
 	number, err := strconv.ParseFloat(value, 64)
-
 	if err != nil {
 		return 0, false
 	}
@@ -106,6 +107,10 @@ func dynoParseFloat(value string) (float64, bool) {
 
 func dynoRPM(sps float64) float64 {
 	return sps * 3.82
+}
+
+func dynoBHP(torque, rpm float64) float64 {
+	return torque * rpm / 52.52
 }
 
 func (m model) dynoGraphPoints() []dynoGraphPoint {
@@ -134,15 +139,26 @@ func (m model) dynoGraphPoints() []dynoGraphPoint {
 			continue
 		}
 
+		rpm := dynoRPM(sps)
+
 		points = append(
 			points,
 			dynoGraphPoint{
 				SPS:    sps,
-				RPM:    dynoRPM(sps),
+				RPM:    rpm,
 				Torque: torque,
+				BHP:    dynoBHP(torque, rpm),
 			},
 		)
 	}
+
+	// The graph must always progress from low RPM to high RPM.
+	sort.SliceStable(
+		points,
+		func(i, j int) bool {
+			return points[i].RPM < points[j].RPM
+		},
+	)
 
 	return points
 }
@@ -150,7 +166,6 @@ func (m model) dynoGraphPoints() []dynoGraphPoint {
 func dynoPeakTorque(
 	points []dynoGraphPoint,
 ) (float64, float64, bool) {
-
 	if len(points) == 0 {
 		return 0, 0, false
 	}
@@ -169,7 +184,6 @@ func dynoPeakTorque(
 func dynoPeakSPS(
 	points []dynoGraphPoint,
 ) (float64, float64, bool) {
-
 	if len(points) == 0 {
 		return 0, 0, false
 	}
@@ -185,6 +199,28 @@ func dynoPeakSPS(
 	return peak.SPS, peak.Torque, true
 }
 
+func dynoPeakBHP(
+	points []dynoGraphPoint,
+) (float64, float64, bool) {
+	if len(points) == 0 {
+		return 0, 0, false
+	}
+
+	peak := points[0]
+
+	for _, point := range points[1:] {
+		if point.BHP > peak.BHP {
+			peak = point
+		}
+	}
+
+	return peak.BHP, peak.SPS, true
+}
+
+// ─────────────────────────────────────────────────────────────
+// Graph bounds
+// ─────────────────────────────────────────────────────────────
+
 func dynoGraphBounds(
 	points []dynoGraphPoint,
 ) (float64, float64, float64, float64) {
@@ -195,8 +231,8 @@ func dynoGraphBounds(
 
 	minRPM := points[0].RPM
 	maxRPM := points[0].RPM
-	minTorque := points[0].Torque
-	maxTorque := points[0].Torque
+	minBHP := points[0].BHP
+	maxBHP := points[0].BHP
 
 	for _, point := range points {
 		if point.RPM < minRPM {
@@ -207,35 +243,31 @@ func dynoGraphBounds(
 			maxRPM = point.RPM
 		}
 
-		if point.Torque < minTorque {
-			minTorque = point.Torque
+		if point.BHP < minBHP {
+			minBHP = point.BHP
 		}
 
-		if point.Torque > maxTorque {
-			maxTorque = point.Torque
+		if point.BHP > maxBHP {
+			maxBHP = point.BHP
 		}
 	}
 
-	if minRPM > 0 {
-		minRPM = 0
-	}
-
-	if minTorque > 0 {
-		minTorque = 0
+	if minBHP > 0 {
+		minBHP = 0
 	}
 
 	if maxRPM <= minRPM {
 		maxRPM = minRPM + 100
 	}
 
-	if maxTorque <= minTorque {
-		maxTorque = minTorque + 100
+	if maxBHP <= minBHP {
+		maxBHP = minBHP + 100
 	}
 
 	return minRPM,
 		maxRPM,
-		minTorque,
-		maxTorque
+		minBHP,
+		maxBHP
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -348,7 +380,6 @@ func (m *model) dynoFocusField(
 }
 
 func (m *model) dynoEnsureVisible() {
-
 	row :=
 		m.dynoFieldRow()
 
@@ -386,7 +417,6 @@ func (m *model) dynoEnsureVisible() {
 }
 
 func (m *model) dynoAddRow() {
-
 	m.dynoPoints =
 		append(
 			m.dynoPoints,
@@ -467,7 +497,6 @@ func (m model) updateDyno(
 	case "esc":
 
 		if m.dynoFullscreen {
-
 			m.dynoFullscreen =
 				false
 
@@ -475,7 +504,6 @@ func (m model) updateDyno(
 		}
 
 		m.dynoBlurAll()
-
 		m.page =
 			pageHome
 
@@ -554,13 +582,11 @@ func (m model) updateDyno(
 	case "pageup":
 
 		m.dynoScrollBy(-1)
-
 		return m, nil
 
 	case "pagedown":
 
 		m.dynoScrollBy(1)
-
 		return m, nil
 	}
 
@@ -573,7 +599,6 @@ func (m model) updateDyno(
 
 	if row < 0 ||
 		row >= len(m.dynoPoints) {
-
 		return m, nil
 	}
 
@@ -610,9 +635,7 @@ func (m model) handleDynoMouse(
 	msg tea.MouseClickMsg,
 ) (tea.Model, tea.Cmd) {
 
-	if msg.Button !=
-		tea.MouseLeft {
-
+	if msg.Button != tea.MouseLeft {
 		return m, nil
 	}
 
@@ -714,7 +737,11 @@ func (m model) handleDynoWheel(
 	}
 
 	leftWidth :=
-		width / 2
+		width * 4 / 10
+
+	if leftWidth < 1 {
+		leftWidth = 1
+	}
 
 	if mouse.X < 0 ||
 		mouse.X >= leftWidth {
@@ -726,7 +753,7 @@ func (m model) handleDynoWheel(
 		return m, nil
 	}
 
-	switch mouse.Button {
+	switch msg.Button {
 
 	case tea.MouseWheelUp:
 		m.dynoScrollBy(-1)
@@ -758,14 +785,9 @@ func (m model) dynoInputView(
 
 	if focused {
 
-		style =
-			style.Foreground(
-				p.accent,
-			)
-
-		return style.Render(
-			input.View(),
-		)
+		return style.
+			Foreground(p.accent).
+			Render(input.View())
 	}
 
 	return style.Render(
@@ -1036,12 +1058,21 @@ func dynoGraphText(
 		lipgloss.NewStyle().
 			Foreground(p.muted)
 
+	axisStyle :=
+		lipgloss.NewStyle().
+			Bold(true).
+			Foreground(p.text)
+
+	curveStyle :=
+		lipgloss.NewStyle().
+			Foreground(p.accent)
+
 	if len(points) == 0 {
 
 		return strings.Join(
 			[]string{
 				titleStyle.Render(
-					"TORQUE vs RPM",
+					"BHP vs RPM",
 				),
 				"",
 				mutedStyle.Render(
@@ -1052,32 +1083,37 @@ func dynoGraphText(
 		)
 	}
 
-	if width < 20 {
-		width = 20
+	if width < 24 {
+		width = 24
 	}
 
 	if height < 8 {
 		height = 8
 	}
 
-	graphWidth :=
-		width - 9
+	const yLabelWidth = 8
 
-	graphHeight :=
-		height - 4
+	graphWidth :=
+		width -
+			yLabelWidth
 
 	if graphWidth < 12 {
 		graphWidth = 12
 	}
 
-	if graphHeight < 5 {
-		graphHeight = 5
+	// Keep the graph tall. Only a small amount of vertical
+	// space is reserved for the RPM scale underneath it.
+	graphHeight :=
+		height - 5
+
+	if graphHeight < 6 {
+		graphHeight = 6
 	}
 
 	minRPM,
 		maxRPM,
-		minTorque,
-		maxTorque :=
+		minBHP,
+		maxBHP :=
 		dynoGraphBounds(points)
 
 	pixelWidth :=
@@ -1086,6 +1122,14 @@ func dynoGraphText(
 	pixelHeight :=
 		graphHeight * 4
 
+	if pixelWidth < 2 {
+		pixelWidth = 2
+	}
+
+	if pixelHeight < 4 {
+		pixelHeight = 4
+	}
+
 	pixels :=
 		make(
 			[][]bool,
@@ -1093,6 +1137,7 @@ func dynoGraphText(
 		)
 
 	for y := range pixels {
+
 		pixels[y] =
 			make(
 				[]bool,
@@ -1102,6 +1147,10 @@ func dynoGraphText(
 
 	scaleX :=
 		func(rpm float64) int {
+
+			if maxRPM <= minRPM {
+				return 0
+			}
 
 			ratio :=
 				(rpm - minRPM) /
@@ -1131,11 +1180,15 @@ func dynoGraphText(
 		}
 
 	scaleY :=
-		func(torque float64) int {
+		func(bhp float64) int {
+
+			if maxBHP <= minBHP {
+				return 0
+			}
 
 			ratio :=
-				(torque - minTorque) /
-					(maxTorque - minTorque)
+				(bhp - minBHP) /
+					(maxBHP - minBHP)
 
 			y :=
 				int(
@@ -1160,6 +1213,10 @@ func dynoGraphText(
 			return y
 		}
 
+	// Draw only the connected curve.
+	//
+	// No separate measurement-dot pass. This keeps the graph
+	// clean and prevents isolated junk cells at the bottom.
 	for i := 1; i < len(points); i++ {
 
 		x0 :=
@@ -1169,7 +1226,7 @@ func dynoGraphText(
 
 		y0 :=
 			scaleY(
-				points[i-1].Torque,
+				points[i-1].BHP,
 			)
 
 		x1 :=
@@ -1179,7 +1236,7 @@ func dynoGraphText(
 
 		y1 :=
 			scaleY(
-				points[i].Torque,
+				points[i].BHP,
 			)
 
 		dynoDrawPixelLine(
@@ -1191,40 +1248,48 @@ func dynoGraphText(
 		)
 	}
 
-	for _, point := range points {
-
-		x :=
-			scaleX(point.RPM)
-
-		y :=
-			scaleY(point.Torque)
-
-		if y >= 0 &&
-			y < len(pixels) &&
-			x >= 0 &&
-			x < len(pixels[y]) {
-
-			pixels[y][x] =
-				true
-		}
-	}
-
 	var lines []string
+
+	lines =
+		append(
+			lines,
+			titleStyle.Render(
+				"BHP vs RPM",
+			),
+			axisStyle.Render(
+				strings.Repeat(
+					" ",
+					yLabelWidth,
+				)+
+					"BHP ↑",
+			),
+		)
+
+	// ────────────────────────────────────────────────────────
+	// Plot
+	// ────────────────────────────────────────────────────────
 
 	for row := 0; row < graphHeight; row++ {
 
-		torqueValue :=
-			maxTorque -
-				(maxTorque-minTorque)*
-					float64(row)/
-					float64(
-						graphHeight*4-1,
-					)
+		// BHP labels use pixel-space, just like the actual graph.
+		pixelY :=
+			row * 4
+
+		ratio :=
+			float64(pixelY) /
+				float64(
+					pixelHeight-1,
+				)
+
+		bhpValue :=
+			maxBHP -
+				(maxBHP-minBHP)*
+					ratio
 
 		label :=
 			fmt.Sprintf(
 				"%7.1f ",
-				torqueValue,
+				bhpValue,
 			)
 
 		var graph strings.Builder
@@ -1245,31 +1310,45 @@ func dynoGraphText(
 						row*4 +
 							py
 
-					if y < 0 ||
-						y >= len(pixels) ||
-						x < 0 ||
-						x >= len(pixels[y]) {
+					if x < 0 ||
+						y < 0 ||
+						x >= pixelWidth ||
+						y >= pixelHeight {
 
 						continue
 					}
 
-					if pixels[y][x] {
-
-						bits |=
-							int(
-								dynoBrailleBit(
-									px,
-									py,
-								),
-							)
+					if !pixels[y][x] {
+						continue
 					}
+
+					bits |=
+						int(
+							dynoBrailleBit(
+								px,
+								py,
+							),
+						)
 				}
 			}
 
-			graph.WriteRune(
-				rune(
-					0x2800 +
-						bits,
+			if bits == 0 {
+
+				graph.WriteByte(
+					' ',
+				)
+
+				continue
+			}
+
+			graph.WriteString(
+				curveStyle.Render(
+					string(
+						rune(
+							0x2800 +
+								bits,
+						),
+					),
 				),
 			)
 		}
@@ -1277,25 +1356,219 @@ func dynoGraphText(
 		lines =
 			append(
 				lines,
-				mutedStyle.Render(label)+
-					lipgloss.NewStyle().
-						Foreground(p.accent).
-						Render(
-							graph.String(),
-						),
+				mutedStyle.Render(
+					label,
+				)+
+					graph.String(),
 			)
+	}
+
+	// ────────────────────────────────────────────────────────
+	// X axis
+	// ────────────────────────────────────────────────────────
+
+	graphPrefix :=
+		strings.Repeat(
+			" ",
+			yLabelWidth,
+		)
+
+	lines =
+		append(
+			lines,
+			mutedStyle.Render(
+				graphPrefix+
+					"└"+
+					strings.Repeat(
+						"─",
+						graphWidth-1,
+					),
+			),
+		)
+
+	// ────────────────────────────────────────────────────────
+	// RPM numbers
+	// ────────────────────────────────────────────────────────
+	//
+	// scaleX() gives the exact Braille-pixel X coordinate.
+	// Divide by 2 because each terminal character is two
+	// horizontal Braille pixels wide.
+	// ────────────────────────────────────────────────────────
+
+	tickCount :=
+		graphWidth / 5
+
+	if tickCount < 5 {
+		tickCount = 5
+	}
+
+	if tickCount > 14 {
+		tickCount = 14
+	}
+
+	rpmLine :=
+		make(
+			[]rune,
+			graphWidth,
+		)
+
+	for i := range rpmLine {
+		rpmLine[i] = ' '
+	}
+
+	type rpmLabel struct {
+		start int
+		end   int
+		text  string
+	}
+
+	labels :=
+		make(
+			[]rpmLabel,
+			0,
+			tickCount,
+		)
+
+	for i := 0; i < tickCount; i++ {
+
+		ratio :=
+			float64(i) /
+				float64(
+					tickCount-1,
+				)
+
+		rpm :=
+			minRPM +
+				(maxRPM-minRPM)*
+					ratio
+
+		pixelX :=
+			scaleX(rpm)
+
+		cellX :=
+			pixelX / 2
+
+		text :=
+			fmt.Sprintf(
+				"%.0f",
+				rpm,
+			)
+
+		textWidth :=
+			len(text)
+
+		start :=
+			cellX -
+				textWidth/2
+
+		if start < 0 {
+			start = 0
+		}
+
+		if start+textWidth >
+			graphWidth {
+
+			start =
+				graphWidth -
+					textWidth
+		}
+
+		if start < 0 {
+			continue
+		}
+
+		labels =
+			append(
+				labels,
+				rpmLabel{
+					start: start,
+					end: start +
+						textWidth -
+						1,
+					text: text,
+				},
+			)
+	}
+
+	// Remove overlapping labels from the inside while
+	// preserving the first and last labels.
+	for len(labels) > 1 {
+
+		overlapIndex := -1
+
+		for i := 1; i < len(labels); i++ {
+
+			if labels[i].start <=
+				labels[i-1].end {
+
+				overlapIndex = i
+				break
+			}
+		}
+
+		if overlapIndex == -1 {
+			break
+		}
+
+		if overlapIndex == len(labels)-1 {
+
+			labels =
+				append(
+					labels[:overlapIndex],
+					labels[overlapIndex+1:]...,
+				)
+
+			continue
+		}
+
+		labels =
+			append(
+				labels[:overlapIndex],
+				labels[overlapIndex+1:]...,
+			)
+	}
+
+	for _, label := range labels {
+
+		for i, r := range []rune(label.text) {
+
+			pos :=
+				label.start + i
+
+			if pos >= 0 &&
+				pos < graphWidth {
+
+				rpmLine[pos] = r
+			}
+		}
 	}
 
 	lines =
 		append(
 			lines,
-			"",
 			mutedStyle.Render(
-				fmt.Sprintf(
-					"RPM %.1f → %.1f",
-					minRPM,
-					maxRPM,
-				),
+				graphPrefix+
+					string(rpmLine),
+			),
+		)
+
+	rpmAxisPadding :=
+		graphWidth/2 - 2
+
+	if rpmAxisPadding < 0 {
+		rpmAxisPadding = 0
+	}
+
+	lines =
+		append(
+			lines,
+			axisStyle.Render(
+				graphPrefix+
+					strings.Repeat(
+						" ",
+						rpmAxisPadding,
+					)+
+					"RPM →",
 			),
 		)
 
@@ -1450,10 +1723,10 @@ func (m model) dynoResultsView(
 			),
 			"",
 			header.Render(
-				"#    SPS        RPM       TORQUE",
+				"#    SPS        RPM       TORQUE        BHP",
 			),
 			muted.Render(
-				"────────────────────────────────",
+				"────────────────────────────────────────────",
 			),
 		}
 
@@ -1463,11 +1736,12 @@ func (m model) dynoResultsView(
 			append(
 				lines,
 				fmt.Sprintf(
-					"%-3d  %8.3f   %8.3f   %8.3f",
+					"%-3d  %8.3f   %8.3f   %8.3f   %8.3f",
 					i+1,
 					point.SPS,
 					point.RPM,
 					point.Torque,
+					point.BHP,
 				),
 			)
 	}
@@ -1495,6 +1769,11 @@ func (m model) dynoResultsView(
 			_ :=
 			dynoPeakSPS(points)
 
+		peakBHP,
+			peakBHPSPS,
+			_ :=
+			dynoPeakBHP(points)
+
 		lines =
 			append(
 				lines,
@@ -1512,12 +1791,17 @@ func (m model) dynoResultsView(
 					peakSPS,
 					peakSPSTorque,
 				),
+				fmt.Sprintf(
+					"Peak BHP    : %.3f @ %.3f SPS",
+					peakBHP,
+					peakBHPSPS,
+				),
 				"",
 				muted.Render(
 					"RPM = SPS × 3.82",
 				),
 				muted.Render(
-					"[G] Fullscreen    [E] Export PNG",
+					"BHP = Torque × RPM / 52.52",
 				),
 			)
 	}
@@ -1623,45 +1907,35 @@ func dynoExportPNG(
 
 	minRPM,
 		maxRPM,
-		minTorque,
-		maxTorque :=
+		minBHP,
+		maxBHP :=
 		dynoGraphBounds(points)
 
 	scaleX :=
 		func(rpm float64) int {
 
-			ratio :=
-				(rpm - minRPM) /
-					(maxRPM - minRPM)
-
 			return plotLeft +
-				int(
-					math.Round(
-						ratio*
-							float64(
-								plotRight-
-									plotLeft,
-							),
-					),
+				dynoScaleX(
+					rpm,
+					minRPM,
+					maxRPM,
+					plotRight-
+						plotLeft+
+						1,
 				)
 		}
 
 	scaleY :=
-		func(torque float64) int {
+		func(bhp float64) int {
 
-			ratio :=
-				(torque - minTorque) /
-					(maxTorque - minTorque)
-
-			return plotBottom -
-				int(
-					math.Round(
-						ratio*
-							float64(
-								plotBottom-
-									plotTop,
-							),
-					),
+			return plotTop +
+				dynoScaleY(
+					bhp,
+					minBHP,
+					maxBHP,
+					plotBottom-
+						plotTop+
+						1,
 				)
 		}
 
@@ -1738,21 +2012,18 @@ func dynoExportPNG(
 
 		dynoPNGLine(
 			img,
-			scaleX(points[i-1].RPM),
-			scaleY(points[i-1].Torque),
-			scaleX(points[i].RPM),
-			scaleY(points[i].Torque),
-			curveColor,
-		)
-	}
-
-	for _, point := range points {
-
-		dynoPNGCircle(
-			img,
-			scaleX(point.RPM),
-			scaleY(point.Torque),
-			6,
+			scaleX(
+				points[i-1].RPM,
+			),
+			scaleY(
+				points[i-1].BHP,
+			),
+			scaleX(
+				points[i].RPM,
+			),
+			scaleY(
+				points[i].BHP,
+			),
 			curveColor,
 		)
 	}
@@ -1775,6 +2046,86 @@ func dynoExportPNG(
 		)
 }
 
+func dynoScaleX(
+	value float64,
+	minValue float64,
+	maxValue float64,
+	pixelWidth int,
+) int {
+
+	if pixelWidth <= 1 ||
+		maxValue <= minValue {
+
+		return 0
+	}
+
+	ratio :=
+		(value - minValue) /
+			(maxValue - minValue)
+
+	x :=
+		int(
+			math.Round(
+				ratio *
+					float64(
+						pixelWidth-1,
+					),
+			),
+		)
+
+	if x < 0 {
+		x = 0
+	}
+
+	if x >= pixelWidth {
+		x =
+			pixelWidth -
+				1
+	}
+
+	return x
+}
+
+func dynoScaleY(
+	value float64,
+	minValue float64,
+	maxValue float64,
+	pixelHeight int,
+) int {
+
+	if pixelHeight <= 1 ||
+		maxValue <= minValue {
+
+		return 0
+	}
+
+	ratio :=
+		(value - minValue) /
+			(maxValue - minValue)
+
+	y :=
+		int(
+			math.Round(
+				(1 - ratio) *
+					float64(
+						pixelHeight-1,
+					),
+			),
+		)
+
+	if y < 0 {
+		y = 0
+	}
+
+	if y >= pixelHeight {
+		y =
+			pixelHeight -
+				1
+	}
+
+	return y
+}
+
 func dynoPNGLine(
 	img *image.RGBA,
 	x0 int,
@@ -1786,12 +2137,16 @@ func dynoPNGLine(
 
 	dx :=
 		math.Abs(
-			float64(x1 - x0),
+			float64(
+				x1 - x0,
+			),
 		)
 
 	dy :=
 		math.Abs(
-			float64(y1 - y0),
+			float64(
+				y1 - y0,
+			),
 		)
 
 	steps :=
@@ -1926,10 +2281,10 @@ func (m model) viewDyno() tea.View {
 	}
 
 	leftWidth :=
-		width / 2
+		width * 4 / 10
 
-	if leftWidth < 40 {
-		leftWidth = 40
+	if leftWidth < 36 {
+		leftWidth = 36
 	}
 
 	if leftWidth > width-20 {
@@ -1984,10 +2339,14 @@ func (m model) viewDyno() tea.View {
 		)
 
 	graphHeight :=
-		panelHeight / 3
+		panelHeight / 2
 
-	if graphHeight < 8 {
-		graphHeight = 8
+	if graphHeight < 10 {
+		graphHeight = 10
+	}
+
+	if graphHeight > panelHeight {
+		graphHeight = panelHeight
 	}
 
 	graph :=
@@ -2025,7 +2384,6 @@ func (m model) viewDyno() tea.View {
 		)
 
 	for i := range dividerLines {
-
 		dividerLines[i] =
 			"│"
 	}
@@ -2098,7 +2456,7 @@ func (m model) viewDyno() tea.View {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Fullscreen graph
+// Fullscreen
 // ─────────────────────────────────────────────────────────────
 
 func (m model) viewDynoFullscreen() tea.View {
@@ -2128,7 +2486,7 @@ func (m model) viewDynoFullscreen() tea.View {
 			Bold(true).
 			Foreground(p.accent).
 			Render(
-				"DYNO • TORQUE vs RPM",
+				"DYNO • BHP vs RPM",
 			)
 
 	graph :=
@@ -2176,7 +2534,9 @@ func (m model) viewDynoFullscreen() tea.View {
 
 	view :=
 		tea.NewView(
-			style.Render(content),
+			style.Render(
+				content,
+			),
 		)
 
 	view.AltScreen = true
