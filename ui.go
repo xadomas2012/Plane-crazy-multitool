@@ -20,6 +20,7 @@ const (
 	pageWheel
 	pageDyno
 	pageCustomize
+	pageToolCustomizeSelect
 	pageAppearance
 	pageThemes
 	pageAccents
@@ -27,10 +28,48 @@ const (
 	pageLayout
 	pageReference
 	pageCalculator
-	pageDensity
 	pageReset
 	pageAbout
 )
+
+type customizeTool int
+
+const (
+	customizeGear customizeTool = iota
+	customizeCrank
+	customizeWheel
+	customizeDyno
+)
+
+func customizeToolName(tool customizeTool) string {
+	switch tool {
+	case customizeGear:
+		return "Gear Calculator"
+	case customizeCrank:
+		return "Crank Angle Calculator"
+	case customizeWheel:
+		return "Wheel Calculator"
+	case customizeDyno:
+		return "Dyno"
+	default:
+		return "Unknown"
+	}
+}
+
+func customizeToolPage(tool customizeTool) page {
+	switch tool {
+	case customizeGear:
+		return pageMain
+	case customizeCrank:
+		return pageCrank
+	case customizeWheel:
+		return pageWheel
+	case customizeDyno:
+		return pageDyno
+	default:
+		return pageHome
+	}
+}
 
 type model struct {
 	teethInput      textinput.Model
@@ -45,6 +84,9 @@ type model struct {
 	theme  string
 	accent string
 
+	customizeTool   customizeTool
+	customToolIndex int
+
 	homeIndex         int
 	themeIndex        int
 	accentIndex       int
@@ -54,7 +96,6 @@ type model struct {
 	layoutIndex       int
 	referenceIndex    int
 	calculatorIndex   int
-	densityIndex      int
 	resetIndex        int
 
 	crankIndex         int
@@ -111,6 +152,9 @@ func initialModel() model {
 		cfg:    cfg,
 		theme:  cfg.Appearance.Theme,
 		accent: cfg.Appearance.Accent,
+
+		customizeTool:   customizeGear,
+		customToolIndex: 0,
 
 		homeIndex:        0,
 		crankLayoutIndex: int(crankInline),
@@ -175,6 +219,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case pageCustomize:
 			return m.updateCustomize(msg)
 
+		case pageToolCustomizeSelect:
+			return m.updateToolCustomizeSelect(msg)
+
 		case pageAppearance:
 			return m.updateAppearance(msg)
 
@@ -195,9 +242,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case pageCalculator:
 			return m.updateCalculator(msg)
-
-		case pageDensity:
-			return m.updateDensity(msg)
 
 		case pageReset:
 			return m.updateReset(msg)
@@ -279,8 +323,8 @@ func (m model) updateHome(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 		case 4:
 			m.stopEditing()
-			m.customIndex = 0
-			m.page = pageCustomize
+			m.customToolIndex = 0
+			m.page = pageToolCustomizeSelect
 
 		case 5:
 			m.stopEditing()
@@ -444,8 +488,9 @@ func (m model) updateMain(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	case "c":
 		m.stopEditing()
-		m.page = pageCustomize
+		m.customizeTool = customizeGear
 		m.customIndex = 0
+		m.page = pageCustomize
 		return m, nil
 
 	case "esc":
@@ -553,16 +598,11 @@ func (m model) currentCompressors() int {
 // Customization
 // ─────────────────────────────────────────────────────────────
 
-func (m model) updateCustomize(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	items := []string{
-		"Appearance",
-		"Layout",
-		"Reference Chart",
-		"Calculator",
-		"Density",
-		"Reset to Defaults",
-		"Back",
-	}
+func (m model) updateCustomize(
+	msg tea.KeyPressMsg,
+) (tea.Model, tea.Cmd) {
+
+	items := m.customizeItems()
 
 	switch msg.String() {
 
@@ -584,42 +624,167 @@ func (m model) updateCustomize(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case "enter":
-		switch m.customIndex {
 
-		case 0:
-			m.page = pageAppearance
-			m.appearanceIndex = 0
+		switch m.customizeTool {
 
-		case 1:
-			m.page = pageLayout
-			m.layoutIndex = 0
+		case customizeGear:
 
-		case 2:
-			m.page = pageReference
-			m.referenceIndex = 0
+			switch m.customIndex {
 
-		case 3:
-			m.page = pageCalculator
-			m.calculatorIndex = 0
+			case 0:
+				m.page = pageAppearance
+				m.appearanceIndex = 0
 
-		case 4:
-			m.page = pageDensity
-			m.densityIndex =
-				densityIndexFromValue(
-					m.cfg.Density,
+			case 1:
+				m.page = pageLayout
+				m.layoutIndex = 0
+
+			case 2:
+				m.page = pageReference
+				m.referenceIndex = 0
+
+			case 3:
+				m.page = pageCalculator
+				m.calculatorIndex = 0
+
+			case 4:
+				m.page = pageReset
+				m.resetIndex = 1
+
+			case 5:
+				m.page = customizeToolPage(
+					m.customizeTool,
 				)
+			}
 
-		case 5:
-			m.page = pageReset
-			m.resetIndex = 1
+		case customizeCrank,
+			customizeWheel,
+			customizeDyno:
 
-		case 6:
-			m.page = pageHome
-			m.homeIndex = 4
+			switch m.customIndex {
+
+			case 0:
+				m.page = pageAppearance
+				m.appearanceIndex = 0
+
+			case 1:
+				m.page = pageLayout
+				m.layoutIndex = 0
+
+			case 2:
+				m.page = pageReset
+				m.resetIndex = 1
+
+			case 3:
+				m.page =
+					customizeToolPage(
+						m.customizeTool,
+					)
+			}
 		}
 
 	case "esc":
+		m.page =
+			customizeToolPage(
+				m.customizeTool,
+			)
+	}
+
+	return m, nil
+}
+
+func (m model) customizeItems() []string {
+
+	switch m.customizeTool {
+
+	case customizeGear:
+		return []string{
+			"Appearance",
+			"Layout",
+			"Reference Chart",
+			"Calculator",
+			"Reset to Defaults",
+			"Back",
+		}
+
+	case customizeCrank,
+		customizeWheel,
+		customizeDyno:
+
+		return []string{
+			"Appearance",
+			"Layout",
+			"Reset to Defaults",
+			"Back",
+		}
+
+	default:
+		return []string{
+			"Back",
+		}
+	}
+}
+
+func (m model) updateToolCustomizeSelect(
+	msg tea.KeyPressMsg,
+) (tea.Model, tea.Cmd) {
+
+	items := []string{
+		"Gear Calculator",
+		"Crank Angle Calculator",
+		"Wheel Calculator",
+		"Dyno",
+		"Back",
+	}
+
+	switch msg.String() {
+
+	case "q", "ctrl+c":
+		return m, tea.Quit
+
+	case "up":
+		m.customToolIndex--
+
+		if m.customToolIndex < 0 {
+			m.customToolIndex =
+				len(items) - 1
+		}
+
+	case "down":
+		m.customToolIndex++
+
+		if m.customToolIndex >= len(items) {
+			m.customToolIndex = 0
+		}
+
+	case "enter":
+
+		switch m.customToolIndex {
+
+		case 0:
+			m.customizeTool = customizeGear
+
+		case 1:
+			m.customizeTool = customizeCrank
+
+		case 2:
+			m.customizeTool = customizeWheel
+
+		case 3:
+			m.customizeTool = customizeDyno
+
+		case 4:
+			m.page = pageHome
+			m.homeIndex = 4
+			return m, nil
+		}
+
+		m.customIndex = 0
+		m.page = pageCustomize
+
+	case "esc":
 		m.page = pageHome
+		m.homeIndex = 4
 	}
 
 	return m, nil
@@ -852,17 +1017,7 @@ func (m model) updateTransparency(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 func (m model) updateLayout(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	items :=
-		[]string{
-			"Automatic",
-			"Calculator left",
-			"Calculator right",
-			"Calculator only",
-			"Reference only",
-			"Stacked",
-			"Reference width",
-			"Stacked order",
-			"Back",
-		}
+		m.layoutItems()
 
 	switch msg.String() {
 
@@ -886,57 +1041,77 @@ func (m model) updateLayout(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	case "left":
 
-		switch m.layoutIndex {
+		switch m.customizeTool {
 
-		case 6:
-			m.cycleReferenceWidth(-1)
+		case customizeGear:
 
-		case 7:
-			m.toggleOrder()
+			switch m.layoutIndex {
+			case 6:
+				m.cycleReferenceWidth(-1)
+			case 7:
+				m.toggleOrder()
+			}
 		}
 
 	case "right":
 
-		switch m.layoutIndex {
+		switch m.customizeTool {
 
-		case 6:
-			m.cycleReferenceWidth(1)
+		case customizeGear:
 
-		case 7:
-			m.toggleOrder()
+			switch m.layoutIndex {
+			case 6:
+				m.cycleReferenceWidth(1)
+			case 7:
+				m.toggleOrder()
+			}
 		}
 
 	case "enter":
 
-		switch m.layoutIndex {
+		switch m.customizeTool {
 
-		case 0:
-			m.setLayout("automatic")
+		case customizeGear:
 
-		case 1:
-			m.setLayout("calculator-left")
+			switch m.layoutIndex {
 
-		case 2:
-			m.setLayout("calculator-right")
+			case 0:
+				m.setLayout("automatic")
 
-		case 3:
-			m.setLayout("calculator-only")
+			case 1:
+				m.setLayout("calculator-left")
 
-		case 4:
-			m.setLayout("reference-only")
+			case 2:
+				m.setLayout("calculator-right")
 
-		case 5:
-			m.setLayout("stacked")
+			case 3:
+				m.setLayout("calculator-only")
 
-		case 6:
-			m.cycleReferenceWidth(1)
+			case 4:
+				m.setLayout("reference-only")
 
-		case 7:
-			m.toggleOrder()
+			case 5:
+				m.setLayout("stacked")
 
-		case 8:
-			m.page =
-				pageCustomize
+			case 6:
+				m.cycleReferenceWidth(1)
+
+			case 7:
+				m.toggleOrder()
+
+			case 8:
+				m.page =
+					pageCustomize
+			}
+
+		default:
+
+			if m.layoutIndex ==
+				len(items)-1 {
+
+				m.page =
+					pageCustomize
+			}
 		}
 
 	case "esc":
@@ -945,6 +1120,36 @@ func (m model) updateLayout(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+func (m model) layoutItems() []string {
+
+	switch m.customizeTool {
+
+	case customizeGear:
+
+		return []string{
+			"Automatic",
+			"Calculator left",
+			"Calculator right",
+			"Calculator only",
+			"Reference only",
+			"Stacked",
+			"Reference width",
+			"Stacked order",
+			"Back",
+		}
+
+	default:
+
+		return []string{
+			"Layout settings for " +
+				customizeToolName(
+					m.customizeTool,
+				),
+			"Back",
+		}
+	}
 }
 
 func (m *model) setLayout(mode string) {
@@ -1258,90 +1463,6 @@ func (m model) updateCalculator(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Density
-// ─────────────────────────────────────────────────────────────
-
-func (m model) updateDensity(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-
-	items :=
-		[]string{
-			"Normal",
-			"Compact",
-			"Minimal",
-			"Back",
-		}
-
-	switch msg.String() {
-
-	case "q", "ctrl+c":
-		return m, tea.Quit
-
-	case "up":
-		m.densityIndex--
-
-		if m.densityIndex < 0 {
-			m.densityIndex =
-				len(items) - 1
-		}
-
-	case "down":
-		m.densityIndex++
-
-		if m.densityIndex >= len(items) {
-			m.densityIndex = 0
-		}
-
-	case "enter":
-
-		switch m.densityIndex {
-
-		case 0:
-			m.cfg.Density =
-				"normal"
-
-		case 1:
-			m.cfg.Density =
-				"compact"
-
-		case 2:
-			m.cfg.Density =
-				"minimal"
-
-		case 3:
-			m.page =
-				pageCustomize
-
-			return m, nil
-		}
-
-		m.saveSettings()
-
-	case "esc":
-		m.page =
-			pageCustomize
-	}
-
-	return m, nil
-}
-
-func densityIndexFromValue(
-	value string,
-) int {
-
-	switch value {
-
-	case "compact":
-		return 1
-
-	case "minimal":
-		return 2
-
-	default:
-		return 0
-	}
-}
-
-// ─────────────────────────────────────────────────────────────
 // Reset
 // ─────────────────────────────────────────────────────────────
 
@@ -1574,77 +1695,32 @@ func (m model) handleMouse(
 	if mode == "calculator-only" ||
 		width < 80 {
 
-		panelTop :=
-			2
+		panelTop := 2
+		y := panelTop + 3
 
-		if m.cfg.Density ==
-			"minimal" {
+		if m.cfg.Calculator.Teeth {
 
-			if m.cfg.Calculator.Teeth &&
-				msg.X >= 2 &&
+			if msg.X >= 2 &&
 				msg.X < 26 &&
-				msg.Y == panelTop+2 {
+				msg.Y == y {
 
 				m.modeTeeth()
 
 				return m, nil
 			}
 
-			if m.cfg.Calculator.Compressors {
+			y += 3
+		}
 
-				y :=
-					panelTop + 4
+		if m.cfg.Calculator.Compressors {
 
-				if !m.cfg.Calculator.Teeth {
-					y =
-						panelTop + 2
-				}
+			if msg.X >= 2 &&
+				msg.X < 26 &&
+				msg.Y == y {
 
-				if msg.X >= 2 &&
-					msg.X < 26 &&
-					msg.Y == y {
+				m.modeCompressors()
 
-					m.modeCompressors()
-
-					return m, nil
-				}
-			}
-
-		} else {
-
-			y :=
-				panelTop + 3
-
-			if m.cfg.Calculator.Teeth {
-
-				if msg.X >= 2 &&
-					msg.X < 26 &&
-					msg.Y == y {
-
-					m.modeTeeth()
-
-					return m, nil
-				}
-
-				y += 2
-
-				if m.cfg.Density ==
-					"normal" {
-
-					y++
-				}
-			}
-
-			if m.cfg.Calculator.Compressors {
-
-				if msg.X >= 2 &&
-					msg.X < 26 &&
-					msg.Y == y {
-
-					m.modeCompressors()
-
-					return m, nil
-				}
+				return m, nil
 			}
 		}
 
@@ -1669,23 +1745,8 @@ func (m model) handleMouse(
 	fieldX :=
 		calculatorX + 2
 
-	var teethY int
-	var compressorsY int
-
-	switch m.cfg.Density {
-
-	case "minimal":
-		teethY = 4
-		compressorsY = 6
-
-	case "compact":
-		teethY = 5
-		compressorsY = 7
-
-	default:
-		teethY = 5
-		compressorsY = 8
-	}
+	teethY := 5
+	compressorsY := 8
 
 	const fieldWidth = 24
 
@@ -1740,6 +1801,9 @@ func (m model) View() tea.View {
 	case pageCustomize:
 		return m.viewCustomize()
 
+	case pageToolCustomizeSelect:
+		return m.viewToolCustomizeSelect()
+
 	case pageAppearance:
 		return m.viewAppearance()
 
@@ -1760,9 +1824,6 @@ func (m model) View() tea.View {
 
 	case pageCalculator:
 		return m.viewCalculator()
-
-	case pageDensity:
-		return m.viewDensity()
 
 	case pageReset:
 		return m.viewReset()
@@ -1915,17 +1976,31 @@ func (m model) viewCustomize() tea.View {
 		)
 
 	return m.renderMenu(
-		"CUSTOMIZATION",
+		customizeToolName(m.customizeTool)+" CUSTOMIZATION",
+		m.customizeItems(),
+		m.customIndex,
+		p,
+	)
+}
+
+func (m model) viewToolCustomizeSelect() tea.View {
+
+	p :=
+		getPalette(
+			m.theme,
+			m.accent,
+		)
+
+	return m.renderMenu(
+		"SELECT TOOL TO CUSTOMIZE",
 		[]string{
-			"Appearance",
-			"Layout",
-			"Reference Chart",
-			"Calculator",
-			"Density",
-			"Reset to Defaults",
+			"Gear Calculator",
+			"Crank Angle Calculator",
+			"Wheel Calculator",
+			"Dyno",
 			"Back",
 		},
-		m.customIndex,
+		m.customToolIndex,
 		p,
 	)
 }
@@ -2051,6 +2126,19 @@ func (m model) viewLayout() tea.View {
 			m.accent,
 		)
 
+	items :=
+		m.layoutItems()
+
+	if m.customizeTool != customizeGear {
+
+		return m.renderMenu(
+			customizeToolName(m.customizeTool)+" LAYOUT",
+			items,
+			m.layoutIndex,
+			p,
+		)
+	}
+
 	mode :=
 		m.cfg.Layout.Mode
 
@@ -2060,7 +2148,7 @@ func (m model) viewLayout() tea.View {
 	}
 
 	return m.renderMenu(
-		"LAYOUT",
+		"GEAR CALCULATOR LAYOUT",
 		[]string{
 			"Automatic" +
 				selectedSuffix(
@@ -2216,42 +2304,6 @@ func (m model) viewCalculator() tea.View {
 			"Back",
 		},
 		m.calculatorIndex,
-		p,
-	)
-}
-
-func (m model) viewDensity() tea.View {
-
-	p :=
-		getPalette(
-			m.theme,
-			m.accent,
-		)
-
-	return m.renderMenu(
-		"DENSITY",
-		[]string{
-			"Normal" +
-				selectedSuffix(
-					m.cfg.Density ==
-						"normal",
-				),
-
-			"Compact" +
-				selectedSuffix(
-					m.cfg.Density ==
-						"compact",
-				),
-
-			"Minimal" +
-				selectedSuffix(
-					m.cfg.Density ==
-						"minimal",
-				),
-
-			"Back",
-		},
-		m.densityIndex,
 		p,
 	)
 }
@@ -2670,27 +2722,14 @@ func (m model) viewMain() tea.View {
 				),
 			)
 
-		if m.cfg.Density != "minimal" {
-
-			calculatorLines =
-				append(
-					calculatorLines,
-					"",
-				)
-		}
-
 		addGap :=
 			func() {
 
-				if m.cfg.Density ==
-					"normal" {
-
-					calculatorLines =
-						append(
-							calculatorLines,
-							"",
-						)
-				}
+				calculatorLines =
+					append(
+						calculatorLines,
+						"",
+					)
 			}
 
 		if m.cfg.Calculator.Teeth {
@@ -2710,12 +2749,6 @@ func (m model) viewMain() tea.View {
 
 			label :=
 				"NUMBER OF TEETH"
-
-			if m.cfg.Density ==
-				"minimal" {
-
-				label = "TEETH"
-			}
 
 			calculatorLines =
 				append(
@@ -2775,12 +2808,6 @@ func (m model) viewMain() tea.View {
 			label :=
 				"FULL ANGLE"
 
-			if m.cfg.Density ==
-				"minimal" {
-
-				label = "FULL"
-			}
-
 			appendValue(
 				label,
 				fmt.Sprintf(
@@ -2794,12 +2821,6 @@ func (m model) viewMain() tea.View {
 
 			label :=
 				"HALF ANGLE"
-
-			if m.cfg.Density ==
-				"minimal" {
-
-				label = "HALF"
-			}
 
 			appendValue(
 				label,
@@ -2825,12 +2846,6 @@ func (m model) viewMain() tea.View {
 
 			label :=
 				"COMPRESSOR VALUE"
-
-			if m.cfg.Density ==
-				"minimal" {
-
-				label = "COMP"
-			}
 
 			appendValue(
 				label,
@@ -3217,7 +3232,7 @@ func (m model) renderStackedCalculator(
 				calcItem{
 					label: "OFFSET",
 					value: fmt.Sprintf(
-						"%.8f",
+						"%.3f",
 						offset,
 					),
 				},

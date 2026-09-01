@@ -150,6 +150,13 @@ func (m model) updateCrank(
 		m.page = pageHome
 		return m, nil
 
+	case "c":
+		m.crankCylinderInput.Blur()
+		m.customizeTool = customizeCrank
+		m.customIndex = 0
+		m.page = pageCustomize
+		return m, nil
+
 	case "up":
 		if !m.crankCylinderInput.Focused() {
 			m.crankLayoutIndex--
@@ -245,7 +252,6 @@ func (m model) handleCrankMouse(
 		leftWidth = 1
 	}
 
-	// The main crank area starts immediately below the 2-row header.
 	contentY := msg.Y - 2
 
 	if contentY < 0 || contentY >= panelHeight {
@@ -253,23 +259,10 @@ func (m model) handleCrankMouse(
 		return m, nil
 	}
 
-	// Left panel includes 2 columns of padding.
 	if msg.X < 2 || msg.X >= leftWidth-2 {
 		m.crankCylinderInput.Blur()
 		return m, nil
 	}
-
-	// Layout options:
-	//
-	// title        y=1
-	// blank        y=2
-	// LAYOUT       y=3
-	// blank        y=4
-	// Inline       y=5
-	// V            y=6
-	// Boxer        y=7
-	//
-	// These coordinates are relative to the main area.
 
 	switch contentY {
 
@@ -289,13 +282,11 @@ func (m model) handleCrankMouse(
 		return m, nil
 
 	case 9:
-		// Cylinder label. Clicking it also focuses the field.
 		m.crankCylinderInput.Focus()
 		m.crankCylinderInput.CursorEnd()
 		return m, textinput.Blink
 
 	case 10:
-		// Cylinder input.
 		m.crankCylinderInput.Focus()
 		m.crankCylinderInput.CursorEnd()
 		return m, textinput.Blink
@@ -393,10 +384,6 @@ func (m model) viewCrank() tea.View {
 			Border(lipgloss.NormalBorder()).
 			BorderForeground(p.accent)
 
-	// ─────────────────────────────────────────────────────────
-	// Left panel
-	// ─────────────────────────────────────────────────────────
-
 	leftLines := []string{
 		titleStyle.Render(
 			"CRANK ANGLE CALCULATOR",
@@ -462,13 +449,9 @@ func (m model) viewCrank() tea.View {
 				"[ENTER / E] Edit cylinders",
 			),
 			labelStyle.Render(
-				"[ESC] Back",
+				"[C] Customize    [ESC] Back",
 			),
 		)
-
-	// ─────────────────────────────────────────────────────────
-	// Right panel
-	// ─────────────────────────────────────────────────────────
 
 	rightLines := []string{
 		titleStyle.Render(
@@ -569,8 +552,6 @@ func (m model) viewCrank() tea.View {
 			"\n",
 		)
 
-	// Use exactly the space below the header.
-	// This avoids the previous extra fixed-height strip.
 	panelHeight := height - 2
 
 	if panelHeight < 1 {
@@ -677,7 +658,7 @@ func (m model) viewCrank() tea.View {
 
 	topBar :=
 		topBarStyle.Render(
-			"PC MULTITOOL",
+			"PC MULTITOOL  •  CRANK ANGLE CALCULATOR",
 		)
 
 	content :=

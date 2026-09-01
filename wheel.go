@@ -12,12 +12,13 @@ import (
 )
 
 type wheelData struct {
-	TireSize        int
-	AngleLock       float64
-	CenterAngle     float64
-	Offset          float64
-	Compressors     int
-	CompressorValue float64
+	TireSize         int
+	AngleLock        float64
+	CenterAngle      float64
+	CenterAngleValid bool
+	Offset           float64
+	Compressors      int
+	CompressorValue  float64
 }
 
 func wheelInput(value int) textinput.Model {
@@ -47,19 +48,6 @@ func wheelCurrentTireSize(m model) int {
 	return value
 }
 
-// wheelOffset calculates the wheel construction offset.
-//
-// The wheel uses:
-//
-//	angle = 360 / SM
-//
-// The resulting offset is:
-//
-//	offset = cot(pi / SM)
-//
-// which is:
-//
-//	offset = 1 / tan(pi / SM)
 func wheelOffset(tireSize int) float64 {
 	if tireSize <= 0 {
 		return 0
@@ -73,14 +61,6 @@ func wheelOffset(tireSize int) float64 {
 		math.Tan(angleRadians)
 }
 
-// wheelCompressors returns the number of compressors
-// required by the wheel construction.
-//
-// Wheel rule:
-//
-//	compressors = floor(offset) - 1
-//
-// At least one compressor is always returned.
 func wheelCompressors(offset float64) int {
 	n :=
 		int(math.Floor(offset)) -
@@ -93,16 +73,6 @@ func wheelCompressors(offset float64) int {
 	return n
 }
 
-// wheelCompressorValue returns the fractional value
-// required for the final compressor.
-//
-// Example:
-//
-//	offset      = 4.066
-//	compressors = 3
-//
-//	value = 4.066 - (3 + 1)
-//	      = 0.066
 func wheelCompressorValue(
 	offset float64,
 	compressors int,
@@ -128,8 +98,13 @@ func calculateWheel(size int) wheelData {
 		360.0 /
 			float64(size)
 
-	centerAngle :=
-		angleLock / 2.0
+	centerAngle := 0.0
+	centerAngleValid := size%2 == 0
+
+	if centerAngleValid {
+		centerAngle =
+			angleLock / 2.0
+	}
 
 	offset :=
 		wheelOffset(size)
@@ -146,12 +121,13 @@ func calculateWheel(size int) wheelData {
 		)
 
 	return wheelData{
-		TireSize:        size,
-		AngleLock:       angleLock,
-		CenterAngle:     centerAngle,
-		Offset:          offset,
-		Compressors:     compressors,
-		CompressorValue: compressorValue,
+		TireSize:         size,
+		AngleLock:        angleLock,
+		CenterAngle:      centerAngle,
+		CenterAngleValid: centerAngleValid,
+		Offset:           offset,
+		Compressors:      compressors,
+		CompressorValue:  compressorValue,
 	}
 }
 
@@ -167,6 +143,13 @@ func (m model) updateWheel(
 	case "esc":
 		m.wheelTireInput.Blur()
 		m.page = pageHome
+		return m, nil
+
+	case "c":
+		m.wheelTireInput.Blur()
+		m.customizeTool = customizeWheel
+		m.customIndex = 0
+		m.page = pageCustomize
 		return m, nil
 
 	case "enter", "e":
@@ -223,7 +206,6 @@ func (m model) handleWheelMouse(
 		panelWidth = 1
 	}
 
-	// The wheel content starts below the two-line top bar.
 	contentY :=
 		msg.Y - 2
 
@@ -347,7 +329,7 @@ func (m model) viewWheel() tea.View {
 				"[ENTER / E] Edit tire size",
 			),
 			labelStyle.Render(
-				"[ESC] Back",
+				"[C] Customize    [ESC] Back",
 			),
 		)
 
@@ -393,12 +375,32 @@ func (m model) viewWheel() tea.View {
 			labelStyle.Render(
 				"CENTER ANGLE",
 			),
-			valueStyle.Render(
-				fmt.Sprintf(
-					"%.3f°",
-					data.CenterAngle,
+		}
+
+	if data.CenterAngleValid {
+		rightLines =
+			append(
+				rightLines,
+				valueStyle.Render(
+					fmt.Sprintf(
+						"%.3f°",
+						data.CenterAngle,
+					),
 				),
-			),
+			)
+	} else {
+		rightLines =
+			append(
+				rightLines,
+				valueStyle.Render(
+					"N/A",
+				),
+			)
+	}
+
+	rightLines =
+		append(
+			rightLines,
 			"",
 			labelStyle.Render(
 				"OFFSET",
@@ -428,7 +430,7 @@ func (m model) viewWheel() tea.View {
 					data.CompressorValue,
 				),
 			),
-		}
+		)
 
 	rightContent :=
 		strings.Join(
@@ -559,7 +561,7 @@ func (m model) viewWheel() tea.View {
 
 	topBar :=
 		topBarStyle.Render(
-			"PC MULTITOOL",
+			"PC MULTITOOL  •  WHEEL CALCULATOR",
 		)
 
 	content :=

@@ -11,7 +11,6 @@ type config struct {
 	Layout     layoutConfig     `json:"layout"`
 	Reference  referenceConfig  `json:"reference"`
 	Calculator calculatorConfig `json:"calculator"`
-	Density    string           `json:"density"`
 
 	SetupCompleted  bool   `json:"setup_completed"`
 	ExportDirectory string `json:"export_directory"`
@@ -106,7 +105,6 @@ func defaultConfig() config {
 			Warnings:        true,
 		},
 
-		Density:         "normal",
 		SetupCompleted:  false,
 		ExportDirectory: defaultExportDirectory(),
 	}
@@ -184,13 +182,6 @@ func loadConfig() config {
 		)
 	}
 
-	if value, ok := raw["density"]; ok {
-		_ = json.Unmarshal(
-			value,
-			&cfg.Density,
-		)
-	}
-
 	if value, ok := raw["setup_completed"]; ok {
 		_ = json.Unmarshal(
 			value,
@@ -243,11 +234,6 @@ func normalizeConfig(
 	if cfg.Layout.Order == "" {
 		cfg.Layout.Order =
 			defaults.Layout.Order
-	}
-
-	if cfg.Density == "" {
-		cfg.Density =
-			defaults.Density
 	}
 
 	if cfg.ExportDirectory == "" {

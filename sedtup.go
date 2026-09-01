@@ -14,7 +14,6 @@ const (
 	setupExport setupField = iota
 	setupTheme
 	setupAccent
-	setupDensity
 	setupFinish
 	setupSkip
 )
@@ -26,7 +25,6 @@ func (m model) setupItems() []string {
 		"Export folder",
 		"Theme",
 		"Accent",
-		"Density",
 		"Finish setup",
 		"Skip setup",
 	}
@@ -117,8 +115,6 @@ func (m model) updateSetup(
 		case setupAccent:
 			m.cycleSetupAccent(-1)
 
-		case setupDensity:
-			m.cycleSetupDensity(-1)
 		}
 
 	case "right":
@@ -131,8 +127,6 @@ func (m model) updateSetup(
 		case setupAccent:
 			m.cycleSetupAccent(1)
 
-		case setupDensity:
-			m.cycleSetupDensity(1)
 		}
 
 	case "enter":
@@ -157,10 +151,6 @@ func (m model) updateSetup(
 		case setupAccent:
 
 			m.cycleSetupAccent(1)
-
-		case setupDensity:
-
-			m.cycleSetupDensity(1)
 
 		case setupFinish:
 
@@ -292,46 +282,6 @@ func (m *model) cycleSetupAccent(
 
 	m.cfg.Appearance.Accent =
 		m.accent
-
-	m.saveSettings()
-}
-
-func (m *model) cycleSetupDensity(
-	delta int,
-) {
-
-	values :=
-		[]string{
-			"normal",
-			"compact",
-			"minimal",
-		}
-
-	current := 0
-
-	switch m.cfg.Density {
-
-	case "compact":
-		current = 1
-
-	case "minimal":
-		current = 2
-	}
-
-	current += delta
-
-	for current < 0 {
-		current += len(values)
-	}
-
-	current %=
-		len(values)
-
-	m.cfg.Density =
-		values[current]
-
-	m.densityIndex =
-		current
 
 	m.saveSettings()
 }
@@ -483,19 +433,6 @@ func (m model) viewSetup() tea.View {
 					),
 				)
 
-		case setupDensity:
-
-			lines =
-				append(
-					lines,
-					valueStyle.Render(
-						"    "+
-							setupDensityDisplay(
-								m.cfg.Density,
-							),
-					),
-				)
-
 		case setupFinish:
 
 			lines =
@@ -589,23 +526,6 @@ func (m model) viewSetup() tea.View {
 	return view
 }
 
-func setupDensityDisplay(
-	value string,
-) string {
-
-	switch value {
-
-	case "compact":
-		return "Compact"
-
-	case "minimal":
-		return "Minimal"
-
-	default:
-		return "Normal"
-	}
-}
-
 func (m model) handleSetupMouse(
 	msg tea.MouseClickMsg,
 ) (tea.Model, tea.Cmd) {
@@ -626,14 +546,11 @@ func (m model) handleSetupMouse(
 		10 Accent
 		11 Accent value
 
-		12 Density
-		13 Density value
+		12 Finish setup
+		13 Description
 
-		14 Finish setup
+		14 Skip setup
 		15 Description
-
-		16 Skip setup
-		17 Description
 	*/
 
 	switch msg.Y {
@@ -662,13 +579,6 @@ func (m model) handleSetupMouse(
 	case 12, 13:
 
 		m.setupIndex =
-			int(setupDensity)
-
-		return m, nil
-
-	case 14, 15:
-
-		m.setupIndex =
 			int(setupFinish)
 
 		m.finishSetup()
@@ -677,7 +587,7 @@ func (m model) handleSetupMouse(
 
 		return m, nil
 
-	case 16, 17:
+	case 14, 15:
 
 		m.setupIndex =
 			int(setupSkip)
