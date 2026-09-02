@@ -20,10 +20,13 @@ const (
 	pageWheel
 	pageDyno
 	pagePiston
+	pageSettings
+	pageUpdates
 	pageCustomize
 	pageToolCustomizeSelect
 	pageAppearance
 	pageThemes
+	pageFlavors
 	pageAccents
 	pageTransparency
 	pageLayout
@@ -103,20 +106,29 @@ type model struct {
 	referenceIndex    int
 	calculatorIndex   int
 	resetIndex        int
+	settingsIndex     int
+	updatesIndex      int
+
+	updateInfo      *updateInfo
+	updateStatus    string
+	updateChecking  bool
+	updateReadyPath string
 
 	referenceSmallestInput textinput.Model
 	referenceMaximumInput  textinput.Model
 	referenceScroll        int
 
-	crankIndex         int
-	crankLayoutIndex   int
-	crankCylinderInput textinput.Model
+	crankIndex            int
+	crankLayoutIndex      int
+	crankCylinderInput    textinput.Model
+	catppuccinFlavorIndex int
 
 	wheelIndex     int
 	wheelTireInput textinput.Model
 
 	pistonDistanceInput textinput.Model
 	pistonAmountInput   textinput.Model
+	pistonValueInput    textinput.Model
 	pistonFieldIndex    int
 
 	dynoPoints     []dynoPoint
@@ -176,6 +188,7 @@ func initialModel() model {
 		wheelTireInput:      wheelInput(10),
 		pistonDistanceInput: newInput("1"),
 		pistonAmountInput:   newInput("2"),
+		pistonValueInput:    newInput("3.106"),
 		dynoPoints:          initialDynoPoints(),
 		setupExportInput:    setupInput,
 
@@ -196,6 +209,8 @@ func initialModel() model {
 		dynoScroll:       0,
 		dynoFullscreen:   false,
 		setupIndex:       0,
+		settingsIndex:    0,
+		updatesIndex:     0,
 	}
 
 	m.updateThemeIndex()
@@ -214,6 +229,28 @@ func (m model) Init() tea.Cmd {
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+
+	case updateCheckMsg:
+		m.updateChecking = false
+
+		if msg.err != nil {
+			m.updateInfo = nil
+			m.updateStatus = "Unable to check for updates."
+			return m, nil
+		}
+
+		m.updateInfo = &msg.info
+
+		if isNewerVersion(
+			msg.info.LatestVersion,
+			msg.info.CurrentVersion,
+		) {
+			m.updateStatus = "Update available."
+		} else {
+			m.updateStatus = "You are up to date."
+		}
+
+		return m, nil
 
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -282,6 +319,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case pagePiston:
 			return m.updatePiston(msg)
 
+		case pageSettings:
+			return m.updateSettings(msg)
+
+		case pageUpdates:
+			return m.updateUpdates(msg)
+
 		case pageCustomize:
 			return m.updateCustomize(msg)
 
@@ -293,6 +336,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case pageThemes:
 			return m.updateThemes(msg)
+
+		case pageFlavors:
+			return m.updateCatppuccinFlavors(msg)
 
 		case pageAccents:
 			return m.updateAccents(msg)
@@ -343,6 +389,7 @@ func (m model) updateHome(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		"Dyno",
 		"Piston Length Calculator",
 		"Settings",
+		"Updates",
 		"About",
 		"Quit",
 	}
@@ -384,10 +431,12 @@ func (m model) openHomeItem(index int) (tea.Model, tea.Cmd) {
 	case 1:
 		m.stopEditing()
 		m.crankLayoutIndex = int(crankInline)
+		m.crankCylinderInput.Blur()
 		m.page = pageCrank
 
 	case 2:
 		m.stopEditing()
+		m.wheelTireInput.Blur()
 		m.page = pageWheel
 
 	case 3:
@@ -402,15 +451,18 @@ func (m model) openHomeItem(index int) (tea.Model, tea.Cmd) {
 
 	case 5:
 		m.stopEditing()
-		m.customToolIndex = 0
 		m.customIndex = 0
-		m.page = pageToolCustomizeSelect
+		m.page = pageSettings
 
 	case 6:
 		m.stopEditing()
-		m.page = pageAbout
+		m.page = pageUpdates
 
 	case 7:
+		m.stopEditing()
+		m.page = pageAbout
+
+	case 8:
 		return m, tea.Quit
 	}
 
@@ -443,6 +495,7 @@ func (m model) viewHome() tea.View {
 		"Dyno",
 		"Piston Length Calculator",
 		"Settings",
+		"Updates",
 		"About",
 		"Quit",
 	}
@@ -676,6 +729,7 @@ func (m *model) stopEditing() {
 	m.wheelTireInput.Blur()
 	m.pistonDistanceInput.Blur()
 	m.pistonAmountInput.Blur()
+	m.pistonValueInput.Blur()
 
 	m.referenceSmallestInput.Blur()
 	m.referenceMaximumInput.Blur()
@@ -827,7 +881,8 @@ func (m model) updateCustomize(
 
 		case customizeCrank,
 			customizeWheel,
-			customizeDyno:
+			customizeDyno,
+			customizePiston:
 
 			switch m.customIndex {
 
@@ -911,6 +966,7 @@ func (m model) updateToolCustomizeSelect(
 			"Crank Angle Calculator",
 			"Wheel Calculator",
 			"Dyno",
+			"Piston Length Calculator",
 			"Back",
 		}
 
@@ -959,9 +1015,12 @@ func (m model) updateToolCustomizeSelect(
 				customizeDyno
 
 		case 4:
+			m.customizeTool =
+				customizePiston
 
-			m.page = pageHome
-			m.homeIndex = 4
+		case 5:
+			m.page = pageSettings
+			m.settingsIndex = 1
 
 			return m, nil
 		}
@@ -971,8 +1030,8 @@ func (m model) updateToolCustomizeSelect(
 
 	case "esc":
 
-		m.page = pageHome
-		m.homeIndex = 4
+		m.page = pageSettings
+		m.settingsIndex = 1
 	}
 
 	return m, nil
@@ -981,6 +1040,252 @@ func (m model) updateToolCustomizeSelect(
 // ─────────────────────────────────────────────────────────────
 // Appearance
 // ─────────────────────────────────────────────────────────────
+type updateCheckMsg struct {
+	info updateInfo
+	err  error
+}
+
+type updateDownloadMsg struct {
+	path string
+	err  error
+}
+
+func (m model) updateUpdates(
+	msg tea.KeyPressMsg,
+) (tea.Model, tea.Cmd) {
+
+	items :=
+		[]string{
+			"Check for updates",
+		}
+
+	if m.updateInfo != nil &&
+		isNewerVersion(
+			m.updateInfo.LatestVersion,
+			m.updateInfo.CurrentVersion,
+		) {
+
+		items =
+			append(
+				items,
+				"Update",
+			)
+	}
+
+	items =
+		append(
+			items,
+			"Back",
+		)
+
+	switch msg.String() {
+
+	case "q", "ctrl+c":
+		return m, tea.Quit
+
+	case "up":
+
+		m.updatesIndex--
+
+		if m.updatesIndex < 0 {
+			m.updatesIndex =
+				len(items) - 1
+		}
+
+	case "down":
+
+		m.updatesIndex++
+
+		if m.updatesIndex >= len(items) {
+			m.updatesIndex = 0
+		}
+
+	case "enter":
+
+		switch items[m.updatesIndex] {
+
+		case "Check for updates":
+
+			if m.updateChecking {
+				return m, nil
+			}
+
+			m.updateChecking = true
+			m.updateStatus =
+				"Checking for updates..."
+
+			return m, func() tea.Msg {
+				info, err :=
+					getLatestUpdate()
+
+				return updateCheckMsg{
+					info: info,
+					err:  err,
+				}
+			}
+
+		case "Update":
+
+			if m.updateInfo == nil ||
+				!isNewerVersion(
+					m.updateInfo.LatestVersion,
+					m.updateInfo.CurrentVersion,
+				) {
+
+				return m, nil
+			}
+
+			if m.updateChecking {
+				return m, nil
+			}
+
+			m.updateChecking = true
+			m.updateStatus =
+				"Downloading and verifying..."
+
+			asset :=
+				m.updateInfo.Asset
+
+			return m, func() tea.Msg {
+
+				path, err :=
+					downloadUpdate(asset)
+
+				return updateDownloadMsg{
+					path: path,
+					err:  err,
+				}
+			}
+
+		case "Back":
+
+			m.page = pageHome
+			m.homeIndex = 6
+		}
+
+	case "esc":
+
+		m.page = pageHome
+		m.homeIndex = 6
+	}
+
+	return m, nil
+}
+
+func (m model) viewUpdates() tea.View {
+
+	p :=
+		getPalette(
+			m.theme,
+			m.accent,
+		)
+
+	items :=
+		[]string{
+			"Check for updates",
+			"Back",
+		}
+
+	title := "UPDATES"
+
+	if m.updateInfo != nil {
+		title = fmt.Sprintf(
+			"UPDATES  •  CURRENT %s  •  LATEST %s",
+			m.updateInfo.CurrentVersion,
+			m.updateInfo.LatestVersion,
+		)
+	}
+
+	if m.updateStatus != "" {
+		title += "  •  " + m.updateStatus
+	}
+
+	return m.renderMenu(
+		title,
+		items,
+		m.updatesIndex,
+		p,
+	)
+}
+
+func (m model) updateSettings(
+	msg tea.KeyPressMsg,
+) (tea.Model, tea.Cmd) {
+
+	items :=
+		[]string{
+			"Appearance",
+			"Layout",
+			"Back",
+		}
+
+	switch msg.String() {
+
+	case "q", "ctrl+c":
+		return m, tea.Quit
+
+	case "up":
+		m.settingsIndex--
+
+		if m.settingsIndex < 0 {
+			m.settingsIndex =
+				len(items) - 1
+		}
+
+	case "down":
+		m.settingsIndex++
+
+		if m.settingsIndex >= len(items) {
+			m.settingsIndex = 0
+		}
+
+	case "enter":
+		switch m.settingsIndex {
+
+		case 0:
+			m.appearanceIndex = 0
+			m.page = pageAppearance
+
+		case 1:
+			m.customToolIndex = 0
+			m.customIndex = 0
+			m.page = pageToolCustomizeSelect
+
+		case 2:
+			m.page = pageHome
+			m.homeIndex = 5
+		}
+
+	case "esc":
+		m.page = pageHome
+		m.homeIndex = 5
+	}
+
+	return m, nil
+}
+
+func (m model) viewSettings() tea.View {
+
+	p :=
+		getPalette(
+			m.theme,
+			m.accent,
+		)
+
+	items :=
+		[]string{
+			"Appearance",
+			"Layout",
+			"Back",
+		}
+
+	return m.renderMenu(
+		"SETTINGS",
+		items,
+		m.settingsIndex,
+		p,
+	)
+}
 
 func (m model) updateAppearance(
 	msg tea.KeyPressMsg,
@@ -1075,6 +1380,13 @@ func (m model) updateThemes(
 	msg tea.KeyPressMsg,
 ) (tea.Model, tea.Cmd) {
 
+	themes := []string{
+		"Catppuccin",
+		"Nord",
+		"Gruvbox",
+		"Solid",
+	}
+
 	switch msg.String() {
 
 	case "q", "ctrl+c":
@@ -1085,34 +1397,120 @@ func (m model) updateThemes(
 		m.themeIndex--
 
 		if m.themeIndex < 0 {
-			m.themeIndex =
-				len(themeKeys) - 1
+			m.themeIndex = len(themes) - 1
 		}
 
 	case "down":
 
 		m.themeIndex++
 
-		if m.themeIndex >=
-			len(themeKeys) {
-
+		if m.themeIndex >= len(themes) {
 			m.themeIndex = 0
 		}
 
 	case "enter":
 
-		m.theme =
-			themeKeys[m.themeIndex]
+		switch m.themeIndex {
 
-		m.cfg.Appearance.Theme =
-			m.theme
+		case 0:
+			m.catppuccinFlavorIndex = m.currentCatppuccinFlavorIndex()
+			m.page = pageFlavors
+			return m, nil
 
+		case 1:
+			m.theme = "nord"
+
+		case 2:
+			m.theme = "gruvbox"
+
+		case 3:
+			m.theme = "solid"
+		}
+
+		m.cfg.Appearance.Theme = m.theme
 		m.saveSettings()
-		m.page = pageAppearance
+		m.updateAccentIndex()
+		m.page = pageAccents
 
 	case "esc":
 
 		m.page = pageAppearance
+	}
+
+	return m, nil
+}
+
+func (m model) catppuccinFlavorKeys() []string {
+	return []string{
+		"catppuccin-latte",
+		"catppuccin-frappe",
+		"catppuccin-macchiato",
+		"catppuccin-mocha",
+	}
+}
+
+func (m model) catppuccinFlavorNames() []string {
+	return []string{
+		"Latte",
+		"Frappé",
+		"Macchiato",
+		"Mocha",
+	}
+}
+
+func (m model) currentCatppuccinFlavorIndex() int {
+
+	keys := m.catppuccinFlavorKeys()
+
+	for i, key := range keys {
+		if m.theme == key {
+			return i
+		}
+	}
+
+	return 3
+}
+
+func (m model) updateCatppuccinFlavors(
+	msg tea.KeyPressMsg,
+) (tea.Model, tea.Cmd) {
+
+	names := m.catppuccinFlavorNames()
+	keys := m.catppuccinFlavorKeys()
+
+	switch msg.String() {
+
+	case "q", "ctrl+c":
+		return m, tea.Quit
+
+	case "up":
+
+		m.catppuccinFlavorIndex--
+
+		if m.catppuccinFlavorIndex < 0 {
+			m.catppuccinFlavorIndex = len(names) - 1
+		}
+
+	case "down":
+
+		m.catppuccinFlavorIndex++
+
+		if m.catppuccinFlavorIndex >= len(names) {
+			m.catppuccinFlavorIndex = 0
+		}
+
+	case "enter":
+
+		m.theme = keys[m.catppuccinFlavorIndex]
+		m.cfg.Appearance.Theme = m.theme
+		m.saveSettings()
+
+		m.updateAccentIndex()
+		m.page = pageAccents
+
+	case "esc":
+
+		m.page = pageThemes
 	}
 
 	return m, nil
@@ -2488,6 +2886,82 @@ func (m *model) updateAccentIndex() {
 // Mouse
 // ─────────────────────────────────────────────────────────────
 
+func (m model) menuMouseIndex(
+	msg tea.MouseClickMsg,
+	itemCount int,
+) (int, bool) {
+
+	if itemCount <= 0 {
+		return 0, false
+	}
+
+	width := m.width
+	height := m.height
+
+	if width < 1 {
+		width = 1
+	}
+
+	if height < 1 {
+		height = 1
+	}
+
+	// renderMenu:
+	//
+	//   vertical content:
+	//     title
+	//     blank
+	//     items...
+	//     blank
+	//     controls
+	//
+	//   box padding: 2 top + 2 bottom
+	//   box border: 1 top + 1 bottom
+	//
+	// Therefore:
+	//
+	//   boxHeight = itemCount + 10
+	//
+	// The first item begins 5 rows below the box top:
+	//
+	//   1 border
+	//   2 padding
+	//   1 title
+	//   1 blank
+	boxHeight :=
+		itemCount + 10
+
+	boxTop :=
+		(height - boxHeight) / 2
+
+	firstItemY :=
+		boxTop + 5
+
+	index :=
+		msg.Y - firstItemY
+
+	if index < 0 ||
+		index >= itemCount {
+
+		return 0, false
+	}
+
+	// renderMenu has a fixed width of 62 plus:
+	// 3 left padding + 3 right padding + 2 borders.
+	boxWidth := 70
+
+	boxLeft :=
+		(width - boxWidth) / 2
+
+	if msg.X < boxLeft ||
+		msg.X >= boxLeft+boxWidth {
+
+		return 0, false
+	}
+
+	return index, true
+}
+
 func (m model) handleMouse(
 	msg tea.MouseClickMsg,
 ) (tea.Model, tea.Cmd) {
@@ -2497,20 +2971,33 @@ func (m model) handleMouse(
 	}
 
 	if m.page == pageHome {
-		// viewHome():
-		//   14 content rows
-		//   2 rows top padding
-		//   2 rows bottom padding
-		// Total rendered height = 18.
-		boxHeight := 18
+
+		items := []string{
+			"Gear Calculator",
+			"Crank Angle Calculator",
+			"Wheel Calculator",
+			"Dyno",
+			"Piston Length Calculator",
+			"Settings",
+			"Updates",
+			"About",
+			"Quit",
+		}
+
+		// Home uses viewHome(), not renderMenu(), so it has
+		// different padding/height geometry.
+		boxHeight := 20
 		boxTop := (m.height - boxHeight) / 2
 
-		// First menu item is content row 5.
-		firstItemY := boxTop + 7
+		firstItemY :=
+			boxTop + 7
 
-		index := msg.Y - firstItemY
+		index :=
+			msg.Y - firstItemY
 
-		if index >= 0 && index < 7 {
+		if index >= 0 &&
+			index < len(items) {
+
 			return m.openHomeItem(index)
 		}
 
@@ -2762,6 +3249,12 @@ func (m model) View() tea.View {
 	case pagePiston:
 		return m.viewPiston()
 
+	case pageSettings:
+		return m.viewSettings()
+
+	case pageUpdates:
+		return m.viewUpdates()
+
 	case pageCustomize:
 		return m.viewCustomize()
 
@@ -2773,6 +3266,9 @@ func (m model) View() tea.View {
 
 	case pageThemes:
 		return m.viewThemes()
+
+	case pageFlavors:
+		return m.viewCatppuccinFlavors()
 
 	case pageAccents:
 		return m.viewAccents()
@@ -2964,6 +3460,7 @@ func (m model) viewToolCustomizeSelect() tea.View {
 			"Crank Angle Calculator",
 			"Wheel Calculator",
 			"Dyno",
+			"Piston Length Calculator",
 			"Back",
 		},
 		m.customToolIndex,
@@ -3024,10 +3521,48 @@ func (m model) viewThemes() tea.View {
 
 	return m.renderMenu(
 		"THEME",
-		themeNames,
+		[]string{
+			"Catppuccin",
+			"Nord",
+			"Gruvbox",
+			"Solid",
+		},
 		m.themeIndex,
 		p,
 	)
+}
+
+func (m model) viewCatppuccinFlavors() tea.View {
+
+	p :=
+		getPalette(
+			m.theme,
+			m.accent,
+		)
+
+	return m.renderMenu(
+		"CATPPUCCIN FLAVOUR",
+		m.catppuccinFlavorNamesWithSelection(),
+		m.catppuccinFlavorIndex,
+		p,
+	)
+}
+
+func (m model) catppuccinFlavorNamesWithSelection() []string {
+
+	names := m.catppuccinFlavorNames()
+	keys := m.catppuccinFlavorKeys()
+	items := make([]string, len(names))
+
+	for i := range names {
+		items[i] =
+			names[i] +
+				selectedSuffix(
+					m.theme == keys[i],
+				)
+	}
+
+	return items
 }
 
 func (m model) viewAccents() tea.View {
@@ -3601,6 +4136,7 @@ func (m model) viewAbout() tea.View {
 
 func (m model) referenceContent(
 	panelHeight int,
+	panelWidth int,
 	p palette,
 ) string {
 
@@ -3636,14 +4172,33 @@ func (m model) referenceContent(
 		)
 	}
 
+	spacing := 4
+
+	for len(columns) > 1 {
+		requiredWidth :=
+			referenceColumnsWidth(
+				columns,
+				spacing,
+			)
+
+		if requiredWidth <= panelWidth-4 ||
+			spacing == 0 {
+			break
+		}
+
+		spacing--
+	}
+
 	lines =
 		append(
 			lines,
 			buildReferenceHeader(
 				columns,
+				spacing,
 			),
 			buildReferenceDivider(
 				columns,
+				spacing,
 			),
 			"",
 		)
@@ -3745,6 +4300,7 @@ func (m model) referenceContent(
 					cv,
 					c,
 					columns,
+					spacing,
 				),
 			)
 	}
@@ -4042,9 +4598,22 @@ func (m model) viewMain() tea.View {
 			}
 		}
 
+		referenceWidth, _ :=
+			m.panelWidths(
+				width,
+			)
+
+		if mode == "calculator-left" {
+			_, referenceWidth =
+				m.panelWidths(
+					width,
+				)
+		}
+
 		reference =
 			m.referenceContent(
 				referencePanelHeight,
+				referenceWidth,
 				p,
 			)
 	}
@@ -4978,8 +5547,49 @@ func referenceColumns(
 	return columns
 }
 
+func referenceColumnsWidth(
+	columns []refColumn,
+	spacing int,
+) int {
+
+	width := 0
+
+	for _, column := range columns {
+
+		switch column {
+
+		case refTeeth:
+			width += 5
+
+		case refFull:
+			width += 10
+
+		case refHalf:
+			width += 10
+
+		case refOffset:
+			width += 8
+
+		case refCompValue:
+			width += 10
+
+		case refCompressors:
+			width += 10
+		}
+	}
+
+	if len(columns) > 1 {
+		width +=
+			(len(columns) - 1) *
+				spacing
+	}
+
+	return width
+}
+
 func buildReferenceHeader(
 	columns []refColumn,
+	spacing int,
 ) string {
 
 	var parts []string
@@ -5040,12 +5650,13 @@ func buildReferenceHeader(
 
 	return strings.Join(
 		parts,
-		"    ",
+		strings.Repeat(" ", spacing),
 	)
 }
 
 func buildReferenceDivider(
 	columns []refColumn,
+	spacing int,
 ) string {
 
 	var parts []string
@@ -5106,7 +5717,7 @@ func buildReferenceDivider(
 
 	return strings.Join(
 		parts,
-		"    ",
+		strings.Repeat(" ", spacing),
 	)
 }
 
@@ -5118,6 +5729,7 @@ func buildReferenceRow(
 	compValue float64,
 	compressors int,
 	columns []refColumn,
+	spacing int,
 ) string {
 
 	var parts []string
@@ -5196,7 +5808,7 @@ func buildReferenceRow(
 
 	return strings.Join(
 		parts,
-		"    ",
+		strings.Repeat(" ", spacing),
 	)
 }
 
@@ -5266,13 +5878,21 @@ func themeDisplayName(
 	key string,
 ) string {
 
-	for i, value := range themeKeys {
-
-		if value ==
-			key {
-
-			return themeNames[i]
-		}
+	switch key {
+	case "catppuccin-latte":
+		return "Catppuccin Latte"
+	case "catppuccin-frappe":
+		return "Catppuccin Frappé"
+	case "catppuccin-macchiato":
+		return "Catppuccin Macchiato"
+	case "catppuccin-mocha":
+		return "Catppuccin Mocha"
+	case "nord":
+		return "Nord"
+	case "gruvbox":
+		return "Gruvbox"
+	case "solid":
+		return "Solid"
 	}
 
 	return "Catppuccin Mocha"

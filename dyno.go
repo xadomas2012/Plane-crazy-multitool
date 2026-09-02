@@ -1258,31 +1258,17 @@ func dynoGraphText(
 			return y
 		}
 
-	// Draw only the connected curve.
+	// Draw a smooth connected curve through the measured points.
 	//
-	// No separate measurement-dot pass. This keeps the graph
-	// clean and prevents isolated junk cells at the bottom.
-	for i := 1; i < len(points); i++ {
+	// Catmull-Rom interpolation keeps the curve passing through
+	// every measured point while adding intermediate samples for
+	// a smoother Braille rendering.
+	if len(points) == 2 {
 
-		x0 :=
-			scaleX(
-				points[i-1].RPM,
-			)
-
-		y0 :=
-			scaleY(
-				points[i-1].BHP,
-			)
-
-		x1 :=
-			scaleX(
-				points[i].RPM,
-			)
-
-		y1 :=
-			scaleY(
-				points[i].BHP,
-			)
+		x0 := scaleX(points[0].RPM)
+		y0 := scaleY(points[0].BHP)
+		x1 := scaleX(points[1].RPM)
+		y1 := scaleY(points[1].BHP)
 
 		dynoDrawPixelLine(
 			pixels,
@@ -1290,6 +1276,72 @@ func dynoGraphText(
 			y0,
 			x1,
 			y1,
+		)
+
+	} else if len(points) > 2 {
+
+		const samplesPerSegment = 24
+
+		for i := 0; i < len(points)-1; i++ {
+
+			p0 := points[max(0, i-1)]
+			p1 := points[i]
+			p2 := points[i+1]
+			p3 := points[min(len(points)-1, i+2)]
+
+			xPrev := scaleX(p1.RPM)
+			yPrev := scaleY(p1.BHP)
+
+			for sample := 1; sample <= samplesPerSegment; sample++ {
+
+				t := float64(sample) / float64(samplesPerSegment)
+				t2 := t * t
+				t3 := t2 * t
+
+				h0 := -0.5*t3 + t2 - 0.5*t
+				h1 := 1.5*t3 - 2.5*t2 + 1
+				h2 := -1.5*t3 + 2*t2 + 0.5*t
+				h3 := 0.5*t3 - 0.5*t2
+
+				rpm :=
+					h0*p0.RPM +
+						h1*p1.RPM +
+						h2*p2.RPM +
+						h3*p3.RPM
+
+				bhp :=
+					h0*p0.BHP +
+						h1*p1.BHP +
+						h2*p2.BHP +
+						h3*p3.BHP
+
+				x := scaleX(rpm)
+				y := scaleY(bhp)
+
+				dynoDrawPixelLine(
+					pixels,
+					xPrev,
+					yPrev,
+					x,
+					y,
+				)
+
+				xPrev = x
+				yPrev = y
+			}
+		}
+
+	} else if len(points) == 1 {
+
+		x := scaleX(points[0].RPM)
+		y := scaleY(points[0].BHP)
+
+		dynoDrawPixelLine(
+			pixels,
+			x,
+			y,
+			x,
+			y,
 		)
 	}
 

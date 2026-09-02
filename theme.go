@@ -17,6 +17,9 @@ type palette struct {
 }
 
 var themeNames = []string{
+	"Catppuccin Latte",
+	"Catppuccin Frappé",
+	"Catppuccin Macchiato",
 	"Catppuccin Mocha",
 	"Nord",
 	"Gruvbox",
@@ -24,7 +27,10 @@ var themeNames = []string{
 }
 
 var themeKeys = []string{
-	"catppuccin",
+	"catppuccin-latte",
+	"catppuccin-frappe",
+	"catppuccin-macchiato",
+	"catppuccin-mocha",
 	"nord",
 	"gruvbox",
 	"solid",
@@ -67,6 +73,62 @@ func getPalette(themeKey, accentKey string) palette {
 	}
 
 	switch themeKey {
+	case "catppuccin-latte":
+		return palette{
+			background: lipgloss.Color("#eff1f5"),
+			surface:    lipgloss.Color("#e6e9ef"),
+			panel:      lipgloss.Color("#ccd0da"),
+			text:       lipgloss.Color("#4c4f69"),
+			muted:      lipgloss.Color("#6c6f85"),
+			border:     lipgloss.Color("#9ca0b0"),
+			accent:     accent,
+		}
+
+	case "catppuccin-frappe":
+		return palette{
+			background: lipgloss.Color("#303446"),
+			surface:    lipgloss.Color("#292c3c"),
+			panel:      lipgloss.Color("#414559"),
+			text:       lipgloss.Color("#c6d0f5"),
+			muted:      lipgloss.Color("#a5adce"),
+			border:     lipgloss.Color("#737994"),
+			accent:     accent,
+		}
+
+	case "catppuccin-macchiato":
+		return palette{
+			background: lipgloss.Color("#24273a"),
+			surface:    lipgloss.Color("#1e2030"),
+			panel:      lipgloss.Color("#363a4f"),
+			text:       lipgloss.Color("#cad3f5"),
+			muted:      lipgloss.Color("#a5adcb"),
+			border:     lipgloss.Color("#6e738d"),
+			accent:     accent,
+		}
+
+	case "catppuccin-mocha":
+		return palette{
+			background: lipgloss.Color("#11111b"),
+			surface:    lipgloss.Color("#181825"),
+			panel:      lipgloss.Color("#1e1e2e"),
+			text:       lipgloss.Color("#cdd6f4"),
+			muted:      lipgloss.Color("#7f849c"),
+			border:     lipgloss.Color("#45475a"),
+			accent:     accent,
+		}
+
+	case "catppuccin":
+		// Legacy config value: keep old configs working.
+		return palette{
+			background: lipgloss.Color("#1e1e2e"),
+			surface:    lipgloss.Color("#181825"),
+			panel:      lipgloss.Color("#313244"),
+			text:       lipgloss.Color("#cdd6f4"),
+			muted:      lipgloss.Color("#a6adc8"),
+			border:     lipgloss.Color("#585b70"),
+			accent:     accent,
+		}
+
 	case "nord":
 		return palette{
 			background: lipgloss.Color("#2e3440"),

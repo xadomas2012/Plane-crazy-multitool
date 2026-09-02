@@ -39,35 +39,43 @@ func pistonAmount(m model) int {
 	return value
 }
 
-func calculatePistonLength(
-	distance float64,
-	pistons int,
-) float64 {
-	if distance < 0 ||
-		pistons < 1 {
+func pistonValue(m model) float64 {
+	value, err := strconv.ParseFloat(
+		strings.TrimSpace(
+			m.pistonValueInput.Value(),
+		),
+		64,
+	)
+
+	if err != nil || value < 0 {
 		return 0
 	}
 
-	return (3.106 * distance) / float64(pistons)
+	return value
+}
+
+func calculatePistonLength(
+	distance float64,
+	pistons int,
+	value float64,
+) float64 {
+	if distance < 0 ||
+		pistons < 1 ||
+		value < 0 {
+		return 0
+	}
+
+	return (value * distance) / float64(pistons)
 }
 
 func pistonLengthValid(
 	distance float64,
 	pistons int,
+	value float64,
 ) bool {
-	if distance < 0 ||
-		pistons < 1 {
-		return false
-	}
-
-	length :=
-		calculatePistonLength(
-			distance,
-			pistons,
-		)
-
-	return length >= 0 &&
-		length <= 4
+	return distance >= 0 &&
+		pistons >= 1 &&
+		value >= 0
 }
 
 func (m model) updatePiston(
@@ -102,13 +110,29 @@ func (m model) updatePiston(
 			return m, textinput.Blink
 		}
 
-		m.pistonAmountInput.Blur()
+		if m.pistonAmountInput.Focused() {
+			m.pistonAmountInput.Blur()
+			m.pistonValueInput.Focus()
+			m.pistonValueInput.CursorEnd()
+			m.pistonFieldIndex = 2
+			return m, textinput.Blink
+		}
+
+		m.pistonValueInput.Blur()
 		m.pistonDistanceInput.Focus()
 		m.pistonDistanceInput.CursorEnd()
 		m.pistonFieldIndex = 0
 		return m, textinput.Blink
 
 	case "shift+tab":
+		if m.pistonValueInput.Focused() {
+			m.pistonValueInput.Blur()
+			m.pistonAmountInput.Focus()
+			m.pistonAmountInput.CursorEnd()
+			m.pistonFieldIndex = 1
+			return m, textinput.Blink
+		}
+
 		if m.pistonAmountInput.Focused() {
 			m.pistonAmountInput.Blur()
 			m.pistonDistanceInput.Focus()
@@ -118,9 +142,9 @@ func (m model) updatePiston(
 		}
 
 		m.pistonDistanceInput.Blur()
-		m.pistonAmountInput.Focus()
-		m.pistonAmountInput.CursorEnd()
-		m.pistonFieldIndex = 1
+		m.pistonValueInput.Focus()
+		m.pistonValueInput.CursorEnd()
+		m.pistonFieldIndex = 2
 		return m, textinput.Blink
 
 	case "enter", "e":
@@ -159,6 +183,15 @@ func (m model) updatePiston(
 
 		m.pistonAmountInput, cmd =
 			m.pistonAmountInput.Update(msg)
+
+		return m, cmd
+	}
+
+	if m.pistonValueInput.Focused() {
+		var cmd tea.Cmd
+
+		m.pistonValueInput, cmd =
+			m.pistonValueInput.Update(msg)
 
 		return m, cmd
 	}
@@ -213,6 +246,7 @@ func (m model) handlePistonMouse(
 		msg.X < fieldX2 {
 
 		m.pistonAmountInput.Blur()
+		m.pistonValueInput.Blur()
 
 		m.pistonDistanceInput.Focus()
 		m.pistonDistanceInput.CursorEnd()
@@ -227,6 +261,7 @@ func (m model) handlePistonMouse(
 		msg.X < fieldX2 {
 
 		m.pistonDistanceInput.Blur()
+		m.pistonValueInput.Blur()
 
 		m.pistonAmountInput.Focus()
 		m.pistonAmountInput.CursorEnd()
@@ -235,8 +270,24 @@ func (m model) handlePistonMouse(
 		return m, textinput.Blink
 	}
 
+	// VALUE field.
+	if (contentY == 9 || contentY == 10) &&
+		msg.X >= fieldX1 &&
+		msg.X < fieldX2 {
+
+		m.pistonDistanceInput.Blur()
+		m.pistonAmountInput.Blur()
+
+		m.pistonValueInput.Focus()
+		m.pistonValueInput.CursorEnd()
+		m.pistonFieldIndex = 2
+
+		return m, textinput.Blink
+	}
+
 	m.pistonDistanceInput.Blur()
 	m.pistonAmountInput.Blur()
+	m.pistonValueInput.Blur()
 
 	return m, nil
 }
@@ -321,6 +372,18 @@ func (m model) viewPiston() tea.View {
 			)
 	}
 
+	valueField :=
+		inputStyle.Render(
+			m.pistonValueInput.Value(),
+		)
+
+	if m.pistonValueInput.Focused() {
+		valueField =
+			focusedInputStyle.Render(
+				m.pistonValueInput.View(),
+			)
+	}
+
 	leftContent :=
 		strings.Join(
 			[]string{
@@ -337,6 +400,11 @@ func (m model) viewPiston() tea.View {
 					"AMOUNT OF PISTONS",
 				),
 				amountField,
+				"",
+				labelStyle.Render(
+					"VALUE",
+				),
+				valueField,
 				"",
 				labelStyle.Render(
 					"[TAB] Next field    [ENTER/E] Edit",
@@ -377,10 +445,23 @@ func (m model) viewPiston() tea.View {
 			pistonsText,
 		)
 
+	valueText :=
+		strings.TrimSpace(
+			m.pistonValueInput.Value(),
+		)
+
+	valueValue, valueErr :=
+		strconv.ParseFloat(
+			valueText,
+			64,
+		)
+
 	if distanceErr != nil ||
 		distanceValue < 0 ||
 		pistonsErr != nil ||
-		pistonsValue < 1 {
+		pistonsValue < 1 ||
+		valueErr != nil ||
+		valueValue < 0 {
 
 		resultLines =
 			append(
@@ -396,6 +477,7 @@ func (m model) viewPiston() tea.View {
 			calculatePistonLength(
 				distanceValue,
 				pistonsValue,
+				valueValue,
 			)
 
 		if calculated > 4 {
