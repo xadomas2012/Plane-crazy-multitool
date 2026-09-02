@@ -1,4 +1,4 @@
-# PC Gear Calculator
+# PC multitool
 
 A terminal-based gear calculator for Plane Crazy.
 
