@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 
@@ -251,6 +252,37 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		return m, nil
+
+	case updateDownloadMsg:
+		m.updateChecking = false
+
+		if msg.err != nil {
+			m.updateStatus =
+				"Update failed: " + msg.err.Error()
+			return m, nil
+		}
+
+		if msg.path == "" {
+			m.updateStatus =
+				"Update failed: no downloaded file."
+			return m, nil
+		}
+
+		if err :=
+			startUpdateHelper(
+				msg.path,
+			); err != nil {
+
+			os.Remove(msg.path)
+
+			m.updateStatus =
+				"Unable to start updater: " +
+					err.Error()
+
+			return m, nil
+		}
+
+		return m, tea.Quit
 
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -1912,7 +1944,7 @@ func (m model) panelWidths(
 	left :=
 		int(
 			float64(width) *
-				0.60,
+				0.70,
 		)
 
 	switch m.cfg.Layout.ReferenceWidth {
@@ -1951,7 +1983,7 @@ func (m model) panelWidths(
 		left =
 			int(
 				float64(width) *
-					0.60,
+					0.70,
 			)
 	}
 
@@ -4074,7 +4106,7 @@ func (m model) viewAbout() tea.View {
 				),
 				"",
 				textStyle.Render(
-					"Version 0.3",
+					"Version " + Version,
 				),
 				"",
 				mutedStyle.Render(
@@ -4084,9 +4116,19 @@ func (m model) viewAbout() tea.View {
 			"\n",
 		)
 
+	boxWidth := 42
+
+	if width-8 < boxWidth {
+		boxWidth = width - 8
+	}
+
+	if boxWidth < 20 {
+		boxWidth = width
+	}
+
 	box :=
 		lipgloss.NewStyle().
-			Width(42).
+			Width(boxWidth).
 			Padding(2, 4).
 			Foreground(p.text)
 

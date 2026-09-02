@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -384,6 +385,165 @@ func verifyDownloadedFile(
 	}
 
 	return nil
+}
+
+func startUpdateHelper(
+	downloadedPath string,
+) error {
+
+	targetPath, err :=
+		os.Executable()
+
+	if err != nil {
+		return err
+	}
+
+	targetPath, err =
+		filepath.Abs(
+			targetPath,
+		)
+
+	if err != nil {
+		return err
+	}
+
+	pid :=
+		strconv.Itoa(
+			os.Getpid(),
+		)
+
+	switch runtime.GOOS {
+
+	case "windows":
+
+		helperPath :=
+			filepath.Join(
+				os.TempDir(),
+				fmt.Sprintf(
+					"pc-multitool-update-%d.cmd",
+					time.Now().UnixNano(),
+				),
+			)
+
+		script :=
+			`@echo off
+set "NEW=%~1"
+set "TARGET=%~2"
+set "PID=%~3"
+
+:wait
+tasklist /FI "PID eq %PID%" 2>NUL | find "%PID%" >NUL
+if not errorlevel 1 (
+    timeout /t 1 /nobreak >NUL
+    goto wait
+)
+
+:replace
+copy /Y "%NEW%" "%TARGET%" >NUL 2>&1
+if errorlevel 1 (
+    timeout /t 1 /nobreak >NUL
+    goto replace
+)
+
+del "%NEW%" >NUL 2>&1
+start "" "%TARGET%"
+del "%~f0" >NUL 2>&1
+`
+
+		if err :=
+			os.WriteFile(
+				helperPath,
+				[]byte(script),
+				0700,
+			); err != nil {
+			return err
+		}
+
+		cmd :=
+			exec.Command(
+				"cmd.exe",
+				"/C",
+				"start",
+				"",
+				"/B",
+				helperPath,
+				downloadedPath,
+				targetPath,
+				pid,
+			)
+
+		if err :=
+			cmd.Start(); err != nil {
+			os.Remove(helperPath)
+			return err
+		}
+
+		return nil
+
+	case "linux", "darwin":
+
+		helperPath :=
+			filepath.Join(
+				os.TempDir(),
+				fmt.Sprintf(
+					"pc-multitool-update-%d.sh",
+					time.Now().UnixNano(),
+				),
+			)
+
+		script :=
+			`#!/bin/sh
+
+NEW="$1"
+TARGET="$2"
+PID="$3"
+
+while kill -0 "$PID" 2>/dev/null
+do
+    sleep 0.2
+done
+
+mv -f "$NEW" "$TARGET" || exit 1
+chmod +x "$TARGET"
+
+"$TARGET" >/dev/null 2>&1 &
+
+rm -f "$0"
+`
+
+		if err :=
+			os.WriteFile(
+				helperPath,
+				[]byte(script),
+				0700,
+			); err != nil {
+			return err
+		}
+
+		cmd :=
+			exec.Command(
+				"sh",
+				helperPath,
+				downloadedPath,
+				targetPath,
+				pid,
+			)
+
+		if err :=
+			cmd.Start(); err != nil {
+			os.Remove(helperPath)
+			return err
+		}
+
+		return nil
+
+	default:
+
+		return fmt.Errorf(
+			"unsupported update platform: %s",
+			runtime.GOOS,
+		)
+	}
 }
 
 func checkForUpdate() {
