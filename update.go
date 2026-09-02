@@ -496,17 +496,17 @@ del "%~f0" >NUL 2>&1
 
 NEW="$1"
 TARGET="$2"
-PID="$3"
 
-while kill -0 "$PID" 2>/dev/null
+sleep 0.5
+
+while ! mv -f "$NEW" "$TARGET" 2>/dev/null
 do
     sleep 0.2
 done
 
-mv -f "$NEW" "$TARGET" || exit 1
 chmod +x "$TARGET"
 
-"$TARGET" >/dev/null 2>&1 &
+"$TARGET" &
 
 rm -f "$0"
 `
@@ -526,7 +526,6 @@ rm -f "$0"
 				helperPath,
 				downloadedPath,
 				targetPath,
-				pid,
 			)
 
 		if err :=
