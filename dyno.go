@@ -1854,48 +1854,80 @@ func (m model) dynoResultsView(
 				),
 			)
 
-	} else {
+	}
 
-		peakTorque,
-			peakTorqueSPS,
-			_ :=
-			dynoPeakTorque(points)
+	return strings.Join(
+		lines,
+		"\n",
+	)
+}
 
-		peakSPS,
-			peakSPSTorque,
-			_ :=
-			dynoPeakSPS(points)
+func (m model) dynoPeaksView(
+	p palette,
+) string {
 
-		peakBHP,
-			peakBHPSPS,
-			_ :=
-			dynoPeakBHP(points)
+	muted :=
+		lipgloss.NewStyle().
+			Foreground(p.muted)
+
+	points :=
+		m.dynoGraphPoints()
+
+	lines :=
+		[]string{
+			muted.Render(
+				"PEAKS",
+			),
+		}
+
+	if len(points) == 0 {
 
 		lines =
 			append(
 				lines,
-				"",
-				muted.Render(
-					"PEAKS",
-				),
-				fmt.Sprintf(
-					"Peak Torque : %.3f @ %.3f SPS",
-					peakTorque,
-					peakTorqueSPS,
-				),
-				fmt.Sprintf(
-					"Peak SPS    : %.3f @ %.3f Torque",
-					peakSPS,
-					peakSPSTorque,
-				),
-				fmt.Sprintf(
-					"Peak BHP    : %.3f @ %.3f SPS",
-					peakBHP,
-					peakBHPSPS,
-				),
-				"",
+				"No complete rows.",
 			)
+
+		return strings.Join(
+			lines,
+			"\n",
+		)
 	}
+
+	peakTorque,
+		peakTorqueSPS,
+		_ :=
+		dynoPeakTorque(points)
+
+	peakSPS,
+		peakSPSTorque,
+		_ :=
+		dynoPeakSPS(points)
+
+	peakBHP,
+		peakBHPSPS,
+		_ :=
+		dynoPeakBHP(points)
+
+	lines =
+		append(
+			lines,
+			fmt.Sprintf(
+				"Peak Torque : %.3f @ %.3f SPS",
+				peakTorque,
+				peakTorqueSPS,
+			),
+			fmt.Sprintf(
+				"Peak SPS    : %.3f @ %.3f Torque",
+				peakSPS,
+				peakSPSTorque,
+			),
+			fmt.Sprintf(
+				"Peak BHP    : %.3f @ %.3f SPS",
+				peakBHP,
+				peakBHPSPS,
+			),
+		)
 
 	return strings.Join(
 		lines,
@@ -2424,9 +2456,19 @@ func (m model) viewDyno() tea.View {
 			)
 	}
 
+	leftContent :=
+		strings.Join(
+			[]string{
+				m.dynoDataView(p),
+				"",
+				m.dynoPeaksView(p),
+			},
+			"\n",
+		)
+
 	leftPanel :=
 		leftStyle.Render(
-			m.dynoDataView(p),
+			leftContent,
 		)
 
 	graphHeight :=
