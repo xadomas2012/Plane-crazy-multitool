@@ -387,162 +387,208 @@ func verifyDownloadedFile(
 	return nil
 }
 
-func startUpdateHelper(
-	downloadedPath string,
-) error {
-
-	targetPath, err :=
-		os.Executable()
-
+func startUpdateHelper(downloadedPath string) error {
+	targetPath, err := os.Executable()
 	if err != nil {
 		return err
 	}
 
-	targetPath, err =
-		filepath.Abs(
-			targetPath,
-		)
-
+	targetPath, err = filepath.Abs(targetPath)
 	if err != nil {
 		return err
 	}
 
-	pid :=
-		strconv.Itoa(
-			os.Getpid(),
-		)
+	pid := strconv.Itoa(os.Getpid())
 
+	ext := filepath.Ext(targetPath)
+	helperPath := filepath.Join(
+		os.TempDir(),
+		fmt.Sprintf(
+			"pc-multitool-update-helper-%d%s",
+			time.Now().UnixNano(),
+			ext,
+		),
+	)
+
+	if err := copyFile(targetPath, helperPath); err != nil {
+		return err
+	}
+
+	if runtime.GOOS != "windows" {
+		if err := os.Chmod(helperPath, 0755); err != nil {
+			os.Remove(helperPath)
+			return err
+		}
+	}
+
+	cmd := exec.Command(
+		helperPath,
+		"--update-helper",
+		downloadedPath,
+		targetPath,
+		pid,
+	)
+
+	if err := cmd.Start(); err != nil {
+		os.Remove(helperPath)
+		return err
+	}
+
+	return nil
+}
+
+func runUpdateHelper(args []string) error {
+	if len(args) != 3 {
+		return fmt.Errorf("invalid updater helper arguments")
+	}
+
+	downloadedPath := args[0]
+	targetPath := args[1]
+
+	pid, err := strconv.Atoi(args[2])
+	if err != nil {
+		return fmt.Errorf("invalid parent process id: %w", err)
+	}
+
+	time.Sleep(300 * time.Millisecond)
+
+	for processIsRunning(pid) {
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	targetInfo, err := os.Stat(targetPath)
+	if err != nil {
+		return err
+	}
+
+	targetDir := filepath.Dir(targetPath)
+
+	stagedPath := filepath.Join(
+		targetDir,
+		fmt.Sprintf(
+			".pc-multitool-update-%d.tmp",
+			time.Now().UnixNano(),
+		),
+	)
+
+	backupPath := filepath.Join(
+		targetDir,
+		fmt.Sprintf(
+			".pc-multitool-backup-%d",
+			time.Now().UnixNano(),
+		),
+	)
+
+	cleanup := func() {
+		os.Remove(stagedPath)
+		os.Remove(backupPath)
+	}
+
+	defer cleanup()
+
+	if err := copyFile(downloadedPath, stagedPath); err != nil {
+		return err
+	}
+
+	if runtime.GOOS != "windows" {
+		mode := targetInfo.Mode().Perm()
+		if mode == 0 {
+			mode = 0755
+		}
+
+		if err := os.Chmod(stagedPath, mode); err != nil {
+			return err
+		}
+	}
+
+	if err := os.Rename(targetPath, backupPath); err != nil {
+		return fmt.Errorf("unable to back up existing executable: %w", err)
+	}
+
+	if err := os.Rename(stagedPath, targetPath); err != nil {
+		_ = os.Rename(backupPath, targetPath)
+		return fmt.Errorf("unable to install update: %w", err)
+	}
+
+	if runtime.GOOS != "windows" {
+		mode := targetInfo.Mode().Perm()
+		if mode == 0 {
+			mode = 0755
+		}
+
+		if err := os.Chmod(targetPath, mode); err != nil {
+			_ = os.Remove(targetPath)
+			_ = os.Rename(backupPath, targetPath)
+			return err
+		}
+	}
+
+	os.Remove(downloadedPath)
+
+	cmd := exec.Command(targetPath)
+	cmd.Dir = filepath.Dir(targetPath)
+
+	if err := cmd.Start(); err != nil {
+		_ = os.Remove(targetPath)
+		_ = os.Rename(backupPath, targetPath)
+		return fmt.Errorf("unable to restart updated executable: %w", err)
+	}
+
+	return nil
+}
+
+func processIsRunning(pid int) bool {
 	switch runtime.GOOS {
-
 	case "windows":
+		cmd := exec.Command(
+			"tasklist",
+			"/FI",
+			fmt.Sprintf("PID eq %d", pid),
+			"/NH",
+		)
 
-		helperPath :=
-			filepath.Join(
-				os.TempDir(),
-				fmt.Sprintf(
-					"pc-multitool-update-%d.cmd",
-					time.Now().UnixNano(),
-				),
-			)
-
-		script :=
-			`@echo off
-set "NEW=%~1"
-set "TARGET=%~2"
-set "PID=%~3"
-
-:wait
-tasklist /FI "PID eq %PID%" 2>NUL | find "%PID%" >NUL
-if not errorlevel 1 (
-    timeout /t 1 /nobreak >NUL
-    goto wait
-)
-
-:replace
-copy /Y "%NEW%" "%TARGET%" >NUL 2>&1
-if errorlevel 1 (
-    timeout /t 1 /nobreak >NUL
-    goto replace
-)
-
-del "%NEW%" >NUL 2>&1
-start "" "%TARGET%"
-del "%~f0" >NUL 2>&1
-`
-
-		if err :=
-			os.WriteFile(
-				helperPath,
-				[]byte(script),
-				0700,
-			); err != nil {
-			return err
+		output, err := cmd.Output()
+		if err != nil {
+			return false
 		}
 
-		cmd :=
-			exec.Command(
-				"cmd.exe",
-				"/C",
-				"start",
-				"",
-				"/B",
-				helperPath,
-				downloadedPath,
-				targetPath,
-				pid,
-			)
-
-		if err :=
-			cmd.Start(); err != nil {
-			os.Remove(helperPath)
-			return err
-		}
-
-		return nil
-
-	case "linux", "darwin":
-
-		helperPath :=
-			filepath.Join(
-				os.TempDir(),
-				fmt.Sprintf(
-					"pc-multitool-update-%d.sh",
-					time.Now().UnixNano(),
-				),
-			)
-
-		script :=
-			`#!/bin/sh
-
-NEW="$1"
-TARGET="$2"
-
-sleep 0.5
-
-while ! mv -f "$NEW" "$TARGET" 2>/dev/null
-do
-    sleep 0.2
-done
-
-chmod +x "$TARGET"
-
-"$TARGET" &
-
-rm -f "$0"
-`
-
-		if err :=
-			os.WriteFile(
-				helperPath,
-				[]byte(script),
-				0700,
-			); err != nil {
-			return err
-		}
-
-		cmd :=
-			exec.Command(
-				"sh",
-				helperPath,
-				downloadedPath,
-				targetPath,
-			)
-
-		if err :=
-			cmd.Start(); err != nil {
-			os.Remove(helperPath)
-			return err
-		}
-
-		return nil
+		return strings.Contains(string(output), strconv.Itoa(pid))
 
 	default:
-
-		return fmt.Errorf(
-			"unsupported update platform: %s",
-			runtime.GOOS,
+		cmd := exec.Command(
+			"ps",
+			"-p",
+			strconv.Itoa(pid),
+			"-o",
+			"pid=",
 		)
+
+		return cmd.Run() == nil
 	}
+}
+
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		return err
+	}
+
+	if err := out.Close(); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func checkForUpdate() {
