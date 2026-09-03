@@ -579,61 +579,116 @@ func checkForUpdate() {
 	)
 }
 
-func isNewerVersion(
-	latest,
-	current string,
-) bool {
-
-	latestParts :=
-		parseVersion(latest)
-
-	currentParts :=
-		parseVersion(current)
-
-	for i := 0; i < 3; i++ {
-
-		if latestParts[i] > currentParts[i] {
-			return true
-		}
-
-		if latestParts[i] < currentParts[i] {
-			return false
-		}
-	}
-
-	return false
+type parsedVersion struct {
+	major      int
+	minor      int
+	patch      int
+	preRelease bool
+	preID      string
+	preNumber  int
 }
 
-func parseVersion(
-	version string,
-) [3]int {
+func isNewerVersion(latest, current string) bool {
+	latestVersion, latestOK := parseVersion(latest)
+	currentVersion, currentOK := parseVersion(current)
 
-	version =
-		strings.TrimPrefix(
-			strings.TrimSpace(version),
-			"v",
-		)
-
-	parts :=
-		strings.Split(
-			version,
-			".",
-		)
-
-	var result [3]int
-
-	for i := 0; i < len(parts) &&
-		i < 3; i++ {
-
-		n, err :=
-			strconv.Atoi(parts[i])
-
-		if err != nil {
-			return [3]int{}
-		}
-
-		result[i] = n
+	if !latestOK || !currentOK {
+		return false
 	}
 
-	return result
+	if latestVersion.major != currentVersion.major {
+		return latestVersion.major > currentVersion.major
+	}
+
+	if latestVersion.minor != currentVersion.minor {
+		return latestVersion.minor > currentVersion.minor
+	}
+
+	if latestVersion.patch != currentVersion.patch {
+		return latestVersion.patch > currentVersion.patch
+	}
+
+	if latestVersion.preRelease != currentVersion.preRelease {
+		return !latestVersion.preRelease
+	}
+
+	if !latestVersion.preRelease {
+		return false
+	}
+
+	preRank := func(id string) int {
+		switch strings.ToLower(id) {
+		case "alpha":
+			return 1
+		case "beta":
+			return 2
+		case "rc":
+			return 3
+		default:
+			return 0
+		}
+	}
+
+	latestRank := preRank(latestVersion.preID)
+	currentRank := preRank(currentVersion.preID)
+
+	if latestRank != currentRank {
+		return latestRank > currentRank
+	}
+
+	return latestVersion.preNumber > currentVersion.preNumber
+}
+
+func parseVersion(version string) (parsedVersion, bool) {
+	version = strings.TrimSpace(version)
+	version = strings.TrimPrefix(version, "v")
+
+	parts := strings.SplitN(version, "-", 2)
+	core := strings.Split(parts[0], ".")
+
+	if len(core) != 3 {
+		return parsedVersion{}, false
+	}
+
+	major, err := strconv.Atoi(core[0])
+	if err != nil {
+		return parsedVersion{}, false
+	}
+
+	minor, err := strconv.Atoi(core[1])
+	if err != nil {
+		return parsedVersion{}, false
+	}
+
+	patch, err := strconv.Atoi(core[2])
+	if err != nil {
+		return parsedVersion{}, false
+	}
+
+	result := parsedVersion{
+		major: major,
+		minor: minor,
+		patch: patch,
+	}
+
+	if len(parts) == 1 {
+		return result, true
+	}
+
+	pre := strings.Split(parts[1], ".")
+
+	if len(pre) != 2 || pre[0] == "" {
+		return parsedVersion{}, false
+	}
+
+	preNumber, err := strconv.Atoi(pre[1])
+	if err != nil || preNumber < 0 {
+		return parsedVersion{}, false
+	}
+
+	result.preRelease = true
+	result.preID = pre[0]
+	result.preNumber = preNumber
+
+	return result, true
 }

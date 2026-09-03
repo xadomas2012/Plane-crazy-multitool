@@ -1089,9 +1089,26 @@ func (m model) updateUpdates(
 	items :=
 		[]string{
 			"Check for updates",
-			"Update",
-			"Back",
 		}
+
+	if m.updateInfo != nil &&
+		isNewerVersion(
+			m.updateInfo.LatestVersion,
+			m.updateInfo.CurrentVersion,
+		) {
+
+		items =
+			append(
+				items,
+				"Update",
+			)
+	}
+
+	items =
+		append(
+			items,
+			"Back",
+		)
 
 	switch msg.String() {
 
