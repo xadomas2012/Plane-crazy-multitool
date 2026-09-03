@@ -400,7 +400,11 @@ func startUpdateHelper(downloadedPath string) error {
 
 	pid := strconv.Itoa(os.Getpid())
 
-	ext := filepath.Ext(targetPath)
+	ext := ""
+	if runtime.GOOS == "windows" {
+		ext = ".exe"
+	}
+
 	helperPath := filepath.Join(
 		os.TempDir(),
 		fmt.Sprintf(
@@ -445,15 +449,11 @@ func runUpdateHelper(args []string) error {
 	downloadedPath := args[0]
 	targetPath := args[1]
 
-	pid, err := strconv.Atoi(args[2])
-	if err != nil {
-		return fmt.Errorf("invalid parent process id: %w", err)
-	}
+	time.Sleep(1500 * time.Millisecond)
 
-	time.Sleep(300 * time.Millisecond)
-
-	for processIsRunning(pid) {
-		time.Sleep(100 * time.Millisecond)
+	helperPath, helperErr := os.Executable()
+	if helperErr == nil {
+		defer os.Remove(helperPath)
 	}
 
 	targetInfo, err := os.Stat(targetPath)
@@ -535,36 +535,6 @@ func runUpdateHelper(args []string) error {
 	}
 
 	return nil
-}
-
-func processIsRunning(pid int) bool {
-	switch runtime.GOOS {
-	case "windows":
-		cmd := exec.Command(
-			"tasklist",
-			"/FI",
-			fmt.Sprintf("PID eq %d", pid),
-			"/NH",
-		)
-
-		output, err := cmd.Output()
-		if err != nil {
-			return false
-		}
-
-		return strings.Contains(string(output), strconv.Itoa(pid))
-
-	default:
-		cmd := exec.Command(
-			"ps",
-			"-p",
-			strconv.Itoa(pid),
-			"-o",
-			"pid=",
-		)
-
-		return cmd.Run() == nil
-	}
 }
 
 func copyFile(src, dst string) error {
