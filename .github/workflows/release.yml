@@ -22,6 +22,14 @@ jobs:
       - name: Build Linux
         run: ./build-linux.sh "${GITHUB_REF_NAME#v}"
 
+      - name: Build Linux updater
+        run: |
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+            -trimpath \
+            -ldflags="-s -w" \
+            -o dist/PC-Gear-Calculator-Updater-Linux-x64 \
+            ./cmd/updater
+
       - name: Package Linux
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
@@ -40,6 +48,7 @@ jobs:
           name: linux
           path: |
             dist/PC-Gear-Calculator-Linux-x64
+            dist/PC-Gear-Calculator-Updater-Linux-x64
             dist/PC-Multitool-Linux-x64-v*.zip
 
   build-macos:
@@ -55,12 +64,28 @@ jobs:
       - name: Build macOS
         run: ./build-macos.sh "${GITHUB_REF_NAME#v}"
 
+      - name: Build macOS updaters
+        run: |
+          CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build \
+            -trimpath \
+            -ldflags="-s -w" \
+            -o dist/PC-Gear-Calculator-Updater-macOS-x64 \
+            ./cmd/updater
+
+          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build \
+            -trimpath \
+            -ldflags="-s -w" \
+            -o dist/PC-Gear-Calculator-Updater-macOS-arm64 \
+            ./cmd/updater
+
       - uses: actions/upload-artifact@v4
         with:
           name: macos
           path: |
             dist/PC-Gear-Calculator-macOS-x64
             dist/PC-Gear-Calculator-macOS-arm64
+            dist/PC-Gear-Calculator-Updater-macOS-x64
+            dist/PC-Gear-Calculator-Updater-macOS-arm64
 
   build-windows:
     runs-on: windows-latest
@@ -75,6 +100,15 @@ jobs:
       - name: Build Windows
         shell: bash
         run: ./build-windows.sh "${GITHUB_REF_NAME#v}"
+
+      - name: Build Windows updater
+        shell: bash
+        run: |
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build \
+            -trimpath \
+            -ldflags="-s -w" \
+            -o dist/PC-Gear-Calculator-Updater-Windows-x64.exe \
+            ./cmd/updater
 
       - name: Install Inno Setup
         shell: pwsh
@@ -95,6 +129,7 @@ jobs:
           name: windows
           path: |
             dist/PC-Gear-Calculator-Windows-x64.exe
+            dist/PC-Gear-Calculator-Updater-Windows-x64.exe
             dist/PC-Multitool-Setup-v*.exe
 
   release:
@@ -116,5 +151,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
           files: |
             release-files/**

@@ -46,6 +46,7 @@ type updateInfo struct {
 	ReleaseName    string
 	ReleaseNotes   string
 	Asset          githubAsset
+	UpdaterAsset   githubAsset
 }
 
 func fetchLatestRelease() (githubRelease, error) {
@@ -387,7 +388,10 @@ func verifyDownloadedFile(
 	return nil
 }
 
-func startUpdateHelper(downloadedPath string) error {
+func startUpdateHelper(
+	downloadedPath string,
+	downloadedUpdaterPath string,
+) error {
 	targetPath, err := os.Executable()
 	if err != nil {
 		return err
@@ -398,164 +402,30 @@ func startUpdateHelper(downloadedPath string) error {
 		return err
 	}
 
-	pid := strconv.Itoa(os.Getpid())
-
-	ext := ""
-	if runtime.GOOS == "windows" {
-		ext = ".exe"
-	}
-
-	helperPath := filepath.Join(
-		os.TempDir(),
-		fmt.Sprintf(
-			"pc-multitool-update-helper-%d%s",
-			time.Now().UnixNano(),
-			ext,
-		),
-	)
-
-	if err := copyFile(targetPath, helperPath); err != nil {
+	updaterPath, err := filepath.Abs(downloadedUpdaterPath)
+	if err != nil {
 		return err
 	}
 
+	pid := strconv.Itoa(os.Getpid())
+
 	if runtime.GOOS != "windows" {
-		if err := os.Chmod(helperPath, 0755); err != nil {
-			os.Remove(helperPath)
+		if err := os.Chmod(updaterPath, 0755); err != nil {
 			return err
 		}
 	}
 
 	cmd := exec.Command(
-		helperPath,
-		"--update-helper",
+		updaterPath,
 		downloadedPath,
 		targetPath,
 		pid,
 	)
 
-	if err := cmd.Start(); err != nil {
-		os.Remove(helperPath)
-		return err
-	}
-
-	return nil
-}
-
-func runUpdateHelper(args []string) error {
-	if len(args) != 3 {
-		return fmt.Errorf("invalid updater helper arguments")
-	}
-
-	downloadedPath := args[0]
-	targetPath := args[1]
-
-	time.Sleep(1500 * time.Millisecond)
-
-	helperPath, helperErr := os.Executable()
-	if helperErr == nil {
-		defer os.Remove(helperPath)
-	}
-
-	targetInfo, err := os.Stat(targetPath)
-	if err != nil {
-		return err
-	}
-
-	targetDir := filepath.Dir(targetPath)
-
-	stagedPath := filepath.Join(
-		targetDir,
-		fmt.Sprintf(
-			".pc-multitool-update-%d.tmp",
-			time.Now().UnixNano(),
-		),
-	)
-
-	backupPath := filepath.Join(
-		targetDir,
-		fmt.Sprintf(
-			".pc-multitool-backup-%d",
-			time.Now().UnixNano(),
-		),
-	)
-
-	cleanup := func() {
-		os.Remove(stagedPath)
-		os.Remove(backupPath)
-	}
-
-	defer cleanup()
-
-	if err := copyFile(downloadedPath, stagedPath); err != nil {
-		return err
-	}
-
-	if runtime.GOOS != "windows" {
-		mode := targetInfo.Mode().Perm()
-		if mode == 0 {
-			mode = 0755
-		}
-
-		if err := os.Chmod(stagedPath, mode); err != nil {
-			return err
-		}
-	}
-
-	if err := os.Rename(targetPath, backupPath); err != nil {
-		return fmt.Errorf("unable to back up existing executable: %w", err)
-	}
-
-	if err := os.Rename(stagedPath, targetPath); err != nil {
-		_ = os.Rename(backupPath, targetPath)
-		return fmt.Errorf("unable to install update: %w", err)
-	}
-
-	if runtime.GOOS != "windows" {
-		mode := targetInfo.Mode().Perm()
-		if mode == 0 {
-			mode = 0755
-		}
-
-		if err := os.Chmod(targetPath, mode); err != nil {
-			_ = os.Remove(targetPath)
-			_ = os.Rename(backupPath, targetPath)
-			return err
-		}
-	}
-
-	os.Remove(downloadedPath)
-
-	cmd := exec.Command(targetPath)
 	cmd.Dir = filepath.Dir(targetPath)
 
 	if err := cmd.Start(); err != nil {
-		_ = os.Remove(targetPath)
-		_ = os.Rename(backupPath, targetPath)
-		return fmt.Errorf("unable to restart updated executable: %w", err)
-	}
-
-	return nil
-}
-
-func copyFile(src, dst string) error {
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-
-	out, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
-
-	if _, err := io.Copy(out, in); err != nil {
-		out.Close()
-		return err
-	}
-
-	if err := out.Close(); err != nil {
-		return err
+		return fmt.Errorf("unable to start updater: %w", err)
 	}
 
 	return nil
