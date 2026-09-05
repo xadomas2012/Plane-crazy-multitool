@@ -24,13 +24,17 @@ const (
 	latestReleaseAPI = "https://api.github.com/repos/" +
 		githubRepo +
 		"/releases/latest"
+	releasesAPI = "https://api.github.com/repos/" +
+		githubRepo +
+		"/releases?per_page=30"
 )
 
 type githubRelease struct {
-	TagName string        `json:"tag_name"`
-	Name    string        `json:"name"`
-	Body    string        `json:"body"`
-	Assets  []githubAsset `json:"assets"`
+	TagName    string        `json:"tag_name"`
+	Name       string        `json:"name"`
+	Body       string        `json:"body"`
+	Prerelease bool          `json:"prerelease"`
+	Assets     []githubAsset `json:"assets"`
 }
 
 type githubAsset struct {
@@ -46,6 +50,75 @@ type updateInfo struct {
 	ReleaseName    string
 	ReleaseNotes   string
 	Asset          githubAsset
+}
+
+func fetchReleaseList() ([]githubRelease, error) {
+	client :=
+		&http.Client{
+			Timeout: 10 * time.Second,
+		}
+
+	req, err :=
+		http.NewRequest(
+			http.MethodGet,
+			releasesAPI,
+			nil,
+		)
+
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set(
+		"Accept",
+		"application/vnd.github+json",
+	)
+
+	req.Header.Set(
+		"X-GitHub-Api-Version",
+		"2022-11-28",
+	)
+
+	resp, err :=
+		client.Do(req)
+
+	if err != nil {
+		return nil, err
+	}
+
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 ||
+		resp.StatusCode >= 300 {
+
+		return nil,
+			fmt.Errorf(
+				"github API returned HTTP %d",
+				resp.StatusCode,
+			)
+	}
+
+	var releases []githubRelease
+
+	if err :=
+		json.NewDecoder(
+			resp.Body,
+		).Decode(&releases); err != nil {
+
+		return nil, err
+	}
+
+	return releases, nil
+}
+
+func isPrereleaseVersion(version string) bool {
+	version =
+		strings.TrimPrefix(
+			strings.TrimSpace(version),
+			"v",
+		)
+
+	return strings.Contains(version, "-")
 }
 
 func fetchLatestRelease() (githubRelease, error) {
@@ -122,23 +195,68 @@ func getLatestUpdate() (updateInfo, error) {
 			)
 	}
 
-	release, err :=
-		fetchLatestRelease()
+	var release githubRelease
 
-	if err != nil {
-		return updateInfo{}, err
-	}
+	if isPrereleaseVersion(Version) {
+		releases, err :=
+			fetchReleaseList()
 
-	if !isNewerVersion(
-		release.TagName,
-		Version,
-	) {
-		return updateInfo{
-			CurrentVersion: Version,
-			LatestVersion:  release.TagName,
-			ReleaseName:    release.Name,
-			ReleaseNotes:   release.Body,
-		}, nil
+		if err != nil {
+			return updateInfo{}, err
+		}
+
+		found := false
+
+		for _, candidate := range releases {
+			if !candidate.Prerelease {
+				continue
+			}
+
+			if !isNewerVersion(
+				candidate.TagName,
+				Version,
+			) {
+				continue
+			}
+
+			if !found ||
+				isNewerVersion(
+					candidate.TagName,
+					release.TagName,
+				) {
+
+				release = candidate
+				found = true
+			}
+		}
+
+		if !found {
+			return updateInfo{
+				CurrentVersion: Version,
+				LatestVersion:  Version,
+			}, nil
+		}
+	} else {
+		var err error
+
+		release, err =
+			fetchLatestRelease()
+
+		if err != nil {
+			return updateInfo{}, err
+		}
+
+		if !isNewerVersion(
+			release.TagName,
+			Version,
+		) {
+			return updateInfo{
+				CurrentVersion: Version,
+				LatestVersion:  release.TagName,
+				ReleaseName:    release.Name,
+				ReleaseNotes:   release.Body,
+			}, nil
+		}
 	}
 
 	asset, err :=

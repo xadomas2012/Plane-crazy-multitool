@@ -438,13 +438,6 @@ func (m model) updateHome(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			next = len(items) - 1
 		}
 
-		if next == 6 {
-			next--
-			if next < 0 {
-				next = len(items) - 1
-			}
-		}
-
 		m.homeIndex = next
 
 	case "down":
@@ -454,20 +447,9 @@ func (m model) updateHome(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			next = 0
 		}
 
-		if next == 6 {
-			next++
-			if next >= len(items) {
-				next = 0
-			}
-		}
-
 		m.homeIndex = next
 
 	case "enter":
-		if m.homeIndex == 6 {
-			return m, nil
-		}
-
 		return m.openHomeItem(m.homeIndex)
 	}
 
@@ -509,6 +491,14 @@ func (m model) openHomeItem(index int) (tea.Model, tea.Cmd) {
 		m.stopEditing()
 		m.customIndex = 0
 		m.page = pageSettings
+
+	case 6:
+		m.stopEditing()
+		m.updateInfo = nil
+		m.updateStatus = ""
+		m.updateChecking = false
+		m.updatesIndex = 0
+		m.page = pageUpdates
 
 	case 7:
 		m.stopEditing()
@@ -586,20 +576,13 @@ func (m model) viewHome() tea.View {
 			"",
 		)
 
-	disabledStyle :=
-		lipgloss.NewStyle().
-			Foreground(p.muted)
-
 	for i, item := range items {
 
 		prefix := "  "
 		style := itemStyle
 		text := item
 
-		if i == 6 {
-			text = "Updates — UNDER CONSTRUCTION"
-			style = disabledStyle
-		} else if i == m.homeIndex {
+		if i == m.homeIndex {
 
 			prefix = "> "
 			style =
