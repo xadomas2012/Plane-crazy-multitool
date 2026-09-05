@@ -46,7 +46,6 @@ type updateInfo struct {
 	ReleaseName    string
 	ReleaseNotes   string
 	Asset          githubAsset
-	UpdaterAsset   githubAsset
 }
 
 func fetchLatestRelease() (githubRelease, error) {
@@ -164,39 +163,29 @@ func findPlatformAsset(
 	assets []githubAsset,
 ) (githubAsset, error) {
 
-	expected := ""
+	expectedPrefix := ""
 
 	switch runtime.GOOS {
-
 	case "linux":
-
 		if runtime.GOARCH == "amd64" {
-			expected =
-				"PC-Gear-Calculator-Linux-x64"
+			expectedPrefix = "PC-Multitool-Linux-x64-"
 		}
 
 	case "windows":
-
 		if runtime.GOARCH == "amd64" {
-			expected =
-				"PC-Gear-Calculator-Windows-x64.exe"
+			expectedPrefix = "PC-Multitool-Windows-x64-"
 		}
 
 	case "darwin":
-
 		switch runtime.GOARCH {
-
 		case "amd64":
-			expected =
-				"PC-Gear-Calculator-macOS-x64"
-
+			expectedPrefix = "PC-Multitool-macOS-x64-"
 		case "arm64":
-			expected =
-				"PC-Gear-Calculator-macOS-arm64"
+			expectedPrefix = "PC-Multitool-macOS-arm64-"
 		}
 	}
 
-	if expected == "" {
+	if expectedPrefix == "" {
 		return githubAsset{},
 			fmt.Errorf(
 				"unsupported platform: %s/%s",
@@ -206,15 +195,16 @@ func findPlatformAsset(
 	}
 
 	for _, asset := range assets {
-		if asset.Name == expected {
+		if strings.HasPrefix(asset.Name, expectedPrefix) &&
+			strings.HasSuffix(asset.Name, ".zip") {
 			return asset, nil
 		}
 	}
 
 	return githubAsset{},
 		fmt.Errorf(
-			"release does not contain asset %q",
-			expected,
+			"release does not contain platform ZIP starting with %q",
+			expectedPrefix,
 		)
 }
 
@@ -228,6 +218,44 @@ func downloadUpdate(
 				"release asset has no download URL",
 			)
 	}
+
+	targetPath, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+
+	targetPath, err = filepath.Abs(targetPath)
+	if err != nil {
+		return "", err
+	}
+
+	updateDir :=
+		filepath.Join(
+			filepath.Dir(targetPath),
+			".update",
+		)
+
+	if err := os.MkdirAll(updateDir, 0755); err != nil {
+		return "", fmt.Errorf(
+			"cannot create update directory: %w",
+			err,
+		)
+	}
+
+	stagedPath :=
+		filepath.Join(
+			updateDir,
+			"new-"+asset.Name,
+		)
+
+	tempPath :=
+		filepath.Join(
+			updateDir,
+			"."+asset.Name+".tmp",
+		)
+
+	_ = os.Remove(stagedPath)
+	_ = os.Remove(tempPath)
 
 	client :=
 		&http.Client{
@@ -254,15 +282,6 @@ func downloadUpdate(
 				resp.StatusCode,
 			)
 	}
-
-	tempDir :=
-		os.TempDir()
-
-	tempPath :=
-		filepath.Join(
-			tempDir,
-			"pc-multitool-update-"+asset.Name,
-		)
 
 	file, err :=
 		os.Create(tempPath)
@@ -291,7 +310,6 @@ func downloadUpdate(
 	}
 
 	if asset.Size > 0 {
-
 		info, err :=
 			os.Stat(tempPath)
 
@@ -301,7 +319,6 @@ func downloadUpdate(
 		}
 
 		if info.Size() != asset.Size {
-
 			os.Remove(tempPath)
 
 			return "",
@@ -323,7 +340,23 @@ func downloadUpdate(
 		return "", err
 	}
 
-	return tempPath, nil
+	if runtime.GOOS != "windows" {
+		if err := os.Chmod(tempPath, 0755); err != nil {
+			os.Remove(tempPath)
+			return "", err
+		}
+	}
+
+	if err := os.Rename(tempPath, stagedPath); err != nil {
+		os.Remove(tempPath)
+		return "",
+			fmt.Errorf(
+				"cannot stage update: %w",
+				err,
+			)
+	}
+
+	return stagedPath, nil
 }
 
 func verifyDownloadedFile(
@@ -390,8 +423,8 @@ func verifyDownloadedFile(
 
 func startUpdateHelper(
 	downloadedPath string,
-	downloadedUpdaterPath string,
 ) error {
+
 	targetPath, err := os.Executable()
 	if err != nil {
 		return err
@@ -402,12 +435,26 @@ func startUpdateHelper(
 		return err
 	}
 
-	updaterPath, err := filepath.Abs(downloadedUpdaterPath)
-	if err != nil {
-		return err
+	updaterName :=
+		"PC-Gear-Calculator-Updater"
+
+	if runtime.GOOS == "windows" {
+		updaterName += ".exe"
 	}
 
-	pid := strconv.Itoa(os.Getpid())
+	updaterPath :=
+		filepath.Join(
+			filepath.Dir(targetPath),
+			".update",
+			updaterName,
+		)
+
+	if _, err := os.Stat(updaterPath); err != nil {
+		return fmt.Errorf(
+			"bundled updater not found: %w",
+			err,
+		)
+	}
 
 	if runtime.GOOS != "windows" {
 		if err := os.Chmod(updaterPath, 0755); err != nil {
@@ -415,17 +462,29 @@ func startUpdateHelper(
 		}
 	}
 
-	cmd := exec.Command(
-		updaterPath,
-		downloadedPath,
-		targetPath,
-		pid,
-	)
+	pid :=
+		strconv.Itoa(
+			os.Getpid(),
+		)
 
-	cmd.Dir = filepath.Dir(targetPath)
+	cmd :=
+		exec.Command(
+			updaterPath,
+			downloadedPath,
+			targetPath,
+			pid,
+		)
+
+	cmd.Dir =
+		filepath.Dir(
+			targetPath,
+		)
 
 	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("unable to start updater: %w", err)
+		return fmt.Errorf(
+			"unable to start updater: %w",
+			err,
+		)
 	}
 
 	return nil

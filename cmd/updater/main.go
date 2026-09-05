@@ -1,6 +1,7 @@
 package main
 
 import (
+	"archive/zip"
 	"fmt"
 	"io"
 	"os"
@@ -140,7 +141,7 @@ func splitFields(s string) []string {
 	return fields
 }
 
-func installUpdate(newPath, targetPath string) error {
+func installUpdate(zipPath, targetPath string) error {
 	targetDir := filepath.Dir(targetPath)
 
 	info, err := os.Stat(targetPath)
@@ -160,8 +161,12 @@ func installUpdate(newPath, targetPath string) error {
 
 	_ = os.Remove(stagedPath)
 
-	if err := copyFile(newPath, stagedPath); err != nil {
-		return fmt.Errorf("cannot stage update: %w", err)
+	if err := extractApplication(
+		zipPath,
+		filepath.Base(targetPath),
+		stagedPath,
+	); err != nil {
+		return fmt.Errorf("cannot extract update: %w", err)
 	}
 
 	if runtime.GOOS != "windows" {
@@ -170,7 +175,10 @@ func installUpdate(newPath, targetPath string) error {
 			info.Mode().Perm(),
 		); err != nil {
 			os.Remove(stagedPath)
-			return fmt.Errorf("cannot set update permissions: %w", err)
+			return fmt.Errorf(
+				"cannot set update permissions: %w",
+				err,
+			)
 		}
 	}
 
@@ -178,7 +186,11 @@ func installUpdate(newPath, targetPath string) error {
 
 	if err := os.Rename(targetPath, backupPath); err != nil {
 		os.Remove(stagedPath)
-		return fmt.Errorf("cannot back up current application: %w", err)
+
+		return fmt.Errorf(
+			"cannot back up current application: %w",
+			err,
+		)
 	}
 
 	if err := os.Rename(stagedPath, targetPath); err != nil {
@@ -219,6 +231,71 @@ func installUpdate(newPath, targetPath string) error {
 	_ = os.Remove(backupPath)
 
 	return nil
+}
+
+func extractApplication(
+	zipPath string,
+	appName string,
+	destination string,
+) error {
+	reader, err := zip.OpenReader(zipPath)
+	if err != nil {
+		return err
+	}
+	defer reader.Close()
+
+	expected := "PC-Multitool/" + filepath.ToSlash(appName)
+
+	for _, entry := range reader.File {
+		name := filepath.ToSlash(entry.Name)
+
+		if name != expected {
+			continue
+		}
+
+		if entry.FileInfo().IsDir() {
+			return fmt.Errorf(
+				"application entry is a directory",
+			)
+		}
+
+		in, err := entry.Open()
+		if err != nil {
+			return err
+		}
+
+		out, err := os.Create(destination)
+		if err != nil {
+			_ = in.Close()
+			return err
+		}
+
+		_, copyErr := io.Copy(out, in)
+		closeOutErr := out.Close()
+		closeInErr := in.Close()
+
+		if copyErr != nil {
+			os.Remove(destination)
+			return copyErr
+		}
+
+		if closeOutErr != nil {
+			os.Remove(destination)
+			return closeOutErr
+		}
+
+		if closeInErr != nil {
+			os.Remove(destination)
+			return closeInErr
+		}
+
+		return nil
+	}
+
+	return fmt.Errorf(
+		"ZIP does not contain %s",
+		expected,
+	)
 }
 
 func startUpdatedApp(targetPath string) error {

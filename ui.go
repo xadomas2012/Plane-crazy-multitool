@@ -268,22 +268,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		if msg.updaterPath == "" {
-			os.Remove(msg.path)
-
-			m.updateStatus =
-				"Update failed: no downloaded updater."
-			return m, nil
-		}
-
 		if err :=
 			startUpdateHelper(
 				msg.path,
-				msg.updaterPath,
 			); err != nil {
 
 			os.Remove(msg.path)
-			os.Remove(msg.updaterPath)
 
 			m.updateStatus =
 				"Unable to start updater: " +
@@ -1116,9 +1106,8 @@ type updateCheckMsg struct {
 }
 
 type updateDownloadMsg struct {
-	path        string
-	updaterPath string
-	err         error
+	path string
+	err  error
 }
 
 func (m model) updateUpdates(
@@ -1217,28 +1206,14 @@ func (m model) updateUpdates(
 			asset :=
 				m.updateInfo.Asset
 
-			updaterAsset :=
-				m.updateInfo.UpdaterAsset
-
 			return m, func() tea.Msg {
 
 				path, err :=
 					downloadUpdate(asset)
 
-				if err != nil {
-					return updateDownloadMsg{
-						path: path,
-						err:  err,
-					}
-				}
-
-				updaterPath, err :=
-					downloadUpdate(updaterAsset)
-
 				return updateDownloadMsg{
-					path:        path,
-					updaterPath: updaterPath,
-					err:         err,
+					path: path,
+					err:  err,
 				}
 			}
 
