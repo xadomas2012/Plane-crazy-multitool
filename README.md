@@ -1,31 +1,109 @@
-# PC multitool
+# PC Multitool
 
-A terminal-based gear calculator for Plane Crazy.
+A terminal-based engineering calculator and multitool for **Plane Crazy**.
 
 **Made by Xad0**
 
+[![Latest Release](https://img.shields.io/github/v/release/xadomas2012/Plane-crazy-multitool?label=latest%20release)](https://github.com/xadomas2012/Plane-crazy-multitool/releases/latest)
+
 ## Features
 
-- Gear angle and offset calculations
-- Automatic compressor calculation
-- Manual compressor adjustment
-- 4–20 teeth reference chart
-- Catppuccin Mocha, Nord, Gruvbox and Solid themes
-- Multiple accent colors
-- Mouse support
-- Fullscreen terminal UI
+* ⚙️ Gear angle and offset calculations
+* 🔩 Automatic compressor calculation
+* 🎛️ Manual compressor adjustment
+* 📊 4–20 teeth reference chart
+* 🖱️ Mouse support
+* 🖥️ Fullscreen terminal UI
+* 🎨 Catppuccin Mocha, Nord, Gruvbox and Solid themes
+* 🌈 Multiple accent colors
+* 🔄 Built-in updater
+* 🧮 Designed for quick in-game engineering calculations
 
-## Requirements
+## Download
 
-No Go installation is required to run a released binary.
+The latest stable release is **v2.0.0**.
 
-Download the executable for your platform and run it.
+Download the release for your platform from the [Releases](https://github.com/xadomas2012/Plane-crazy-multitool/releases) page.
 
-## App instructions for Windows
-The app will get flagged by windows smartscreen, and i cannot do anything about that. For safety, the sha256 file is included so you can check if the file is ok, but there should be nothing wrong. Just launch the exe, and you have the calculator.
+Available builds:
 
-## App instructions for Linux
+* Linux x64
+* Windows x64
+* macOS x64
+* macOS arm64
+
+## Linux
+
+Download the Linux x64 ZIP and extract it.
+
+Then run:
 
 ```bash
-#make the file executable. chmod +x PC-Gear-Calculator-Linux-x64
-#run the file ./PC-Gear-Calculator-Linux-x64
+cd PC-Multitool
+./install.sh
+```
+
+The installer places the application in:
+
+```text
+~/.local/opt/PC-Multitool/
+```
+
+and creates:
+
+```text
+~/.local/bin/pc-multitool
+~/.local/share/applications/pc-multitool.desktop
+```
+
+That means the application can be launched from application menus such as **Rofi**.
+
+You can also launch it directly:
+
+```bash
+pc-multitool
+```
+
+If `~/.local/bin` is not in your `PATH`, add:
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+## Updating
+
+Released versions include a built-in updater.
+
+When a newer release is available, the application can download the appropriate platform package and use the bundled updater to replace the installed executable.
+
+Stable releases can update normally, and prerelease builds can update through newer prereleases and into a newer stable release.
+
+## Windows
+
+Download the Windows x64 ZIP from the latest release and run:
+
+```text
+PC-Gear-Calculator.exe
+```
+
+Windows SmartScreen may display a warning because the executable is not code-signed.
+
+## macOS
+
+Download the package matching your Mac:
+
+* **Intel:** macOS x64
+* **Apple Silicon:** macOS arm64
+
+Extract the ZIP and run the application.
+
+## Themes
+
+Included themes:
+
+* Catppuccin Mocha
+* Nord
+* Gruvbox
+* Solid
+
+Accent colors can also be customized from the application.
