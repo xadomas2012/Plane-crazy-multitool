@@ -295,10 +295,6 @@ func getLatestUpdate() (updateInfo, error) {
 		found := false
 
 		for _, candidate := range releases {
-			if !candidate.Prerelease {
-				continue
-			}
-
 			if !isNewerVersion(
 				candidate.TagName,
 				Version,
