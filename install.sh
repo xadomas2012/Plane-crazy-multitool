@@ -10,9 +10,16 @@ DESKTOP_DIR="$HOME/.local/share/applications"
 
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 SOURCE_BIN="$SCRIPT_DIR/$BIN_NAME"
+UPDATER_DIR="$SCRIPT_DIR/.update"
+UPDATER_BIN="$UPDATER_DIR/PC-Gear-Calculator-Updater"
 
 if [ ! -f "$SOURCE_BIN" ]; then
     echo "Error: $BIN_NAME not found next to install.sh"
+    exit 1
+fi
+
+if [ ! -f "$UPDATER_BIN" ]; then
+    echo "Error: PC-Gear-Calculator-Updater not found in .update/"
     exit 1
 fi
 
@@ -24,6 +31,10 @@ mkdir -p "$DESKTOP_DIR"
 
 cp "$SOURCE_BIN" "$INSTALL_DIR/$BIN_NAME"
 chmod +x "$INSTALL_DIR/$BIN_NAME"
+
+mkdir -p "$INSTALL_DIR/.update"
+cp "$UPDATER_BIN" "$INSTALL_DIR/.update/PC-Gear-Calculator-Updater"
+chmod +x "$INSTALL_DIR/.update/PC-Gear-Calculator-Updater"
 
 ln -sf "$INSTALL_DIR/$BIN_NAME" "$BIN_DIR/pc-multitool"
 

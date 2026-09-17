@@ -3026,6 +3026,11 @@ func (m model) menuMouseIndex(
 func (m model) handleMouse(
 	msg tea.MouseClickMsg,
 ) (tea.Model, tea.Cmd) {
+	f, err := os.OpenFile("/tmp/pc-multitool-mouse.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
+	if err == nil {
+		fmt.Fprintf(f, "X=%d Y=%d BUTTON=%v PAGE=%d MODE=%s\\n", msg.X, msg.Y, msg.Button, m.page, m.effectiveLayout())
+		f.Close()
+	}
 
 	if msg.Button != tea.MouseLeft {
 		return m, nil
@@ -3157,8 +3162,7 @@ func (m model) handleMouse(
 		}
 
 		fieldY :=
-			calculatorTop +
-				1
+			calculatorTop
 
 		if msg.Y ==
 			fieldY {
@@ -3199,7 +3203,7 @@ func (m model) handleMouse(
 		width < 80 {
 
 		panelTop := 2
-		y := panelTop + 3
+		y := panelTop + 2
 
 		if m.cfg.Calculator.Teeth {
 
@@ -3252,8 +3256,8 @@ func (m model) handleMouse(
 	fieldX :=
 		calculatorX + 2
 
-	teethY := 5
-	compressorsY := 8
+	teethY := 4
+	compressorsY := 7
 
 	const fieldWidth = 24
 

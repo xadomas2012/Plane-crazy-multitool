@@ -39,11 +39,15 @@ jobs:
           cp dist/PC-Gear-Calculator-Linux-x64 \
             package/PC-Multitool/PC-Gear-Calculator
 
+          cp install.sh \
+            package/PC-Multitool/install.sh
+
           cp dist/PC-Gear-Calculator-Updater-Linux-x64 \
             package/PC-Multitool/.update/PC-Gear-Calculator-Updater
 
           chmod +x \
             package/PC-Multitool/PC-Gear-Calculator \
+            package/PC-Multitool/install.sh \
             package/PC-Multitool/.update/PC-Gear-Calculator-Updater
 
           cd package

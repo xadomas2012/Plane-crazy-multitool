@@ -52,20 +52,91 @@ type updateInfo struct {
 	Asset          githubAsset
 }
 
-func fetchReleaseList() ([]githubRelease, error) {
-	client :=
-		&http.Client{
-			Timeout: 10 * time.Second,
-		}
+const updateCacheTTL = 6 * time.Hour
 
-	req, err :=
-		http.NewRequest(
-			http.MethodGet,
-			releasesAPI,
-			nil,
-		)
+type releaseCache struct {
+	FetchedAt time.Time       `json:"fetched_at"`
+	Releases  []githubRelease `json:"releases"`
+}
 
+func releaseCachePath(name string) string {
+	cacheDir, err := os.UserCacheDir()
 	if err != nil {
+		return ""
+	}
+
+	dir := filepath.Join(cacheDir, "pc-multitool")
+
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return ""
+	}
+
+	return filepath.Join(dir, name)
+}
+
+func loadReleaseCache(name string) ([]githubRelease, bool, []githubRelease) {
+	path := releaseCachePath(name)
+	if path == "" {
+		return nil, false, nil
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, false, nil
+	}
+
+	var cache releaseCache
+	if err := json.Unmarshal(data, &cache); err != nil {
+		return nil, false, nil
+	}
+
+	if len(cache.Releases) == 0 {
+		return nil, false, nil
+	}
+
+	if time.Since(cache.FetchedAt) <= updateCacheTTL {
+		return cache.Releases, true, cache.Releases
+	}
+
+	return nil, false, cache.Releases
+}
+
+func saveReleaseCache(name string, releases []githubRelease) {
+	path := releaseCachePath(name)
+	if path == "" || len(releases) == 0 {
+		return
+	}
+
+	data, err := json.Marshal(releaseCache{
+		FetchedAt: time.Now(),
+		Releases:  releases,
+	})
+	if err != nil {
+		return
+	}
+
+	_ = os.WriteFile(path, data, 0600)
+}
+
+func fetchReleaseList() ([]githubRelease, error) {
+	cached, fresh, stale := loadReleaseCache("releases.json")
+	if fresh {
+		return cached, nil
+	}
+
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+	}
+
+	req, err := http.NewRequest(
+		http.MethodGet,
+		releasesAPI,
+		nil,
+	)
+	if err != nil {
+		if len(stale) > 0 {
+			return stale, nil
+		}
 		return nil, err
 	}
 
@@ -73,40 +144,48 @@ func fetchReleaseList() ([]githubRelease, error) {
 		"Accept",
 		"application/vnd.github+json",
 	)
-
 	req.Header.Set(
 		"X-GitHub-Api-Version",
 		"2022-11-28",
 	)
 
-	resp, err :=
-		client.Do(req)
-
+	resp, err := client.Do(req)
 	if err != nil {
+		if len(stale) > 0 {
+			return stale, nil
+		}
 		return nil, err
 	}
 
 	defer resp.Body.Close()
 
-	if resp.StatusCode < 200 ||
-		resp.StatusCode >= 300 {
-
-		return nil,
-			fmt.Errorf(
-				"github API returned HTTP %d",
-				resp.StatusCode,
-			)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		if len(stale) > 0 {
+			return stale, nil
+		}
+		return nil, fmt.Errorf(
+			"github API returned HTTP %d",
+			resp.StatusCode,
+		)
 	}
 
 	var releases []githubRelease
 
-	if err :=
-		json.NewDecoder(
-			resp.Body,
-		).Decode(&releases); err != nil {
-
+	if err := json.NewDecoder(resp.Body).Decode(&releases); err != nil {
+		if len(stale) > 0 {
+			return stale, nil
+		}
 		return nil, err
 	}
+
+	if len(releases) == 0 {
+		if len(stale) > 0 {
+			return stale, nil
+		}
+		return nil, errors.New("GitHub returned no releases")
+	}
+
+	saveReleaseCache("releases.json", releases)
 
 	return releases, nil
 }
@@ -122,19 +201,24 @@ func isPrereleaseVersion(version string) bool {
 }
 
 func fetchLatestRelease() (githubRelease, error) {
-	client :=
-		&http.Client{
-			Timeout: 10 * time.Second,
-		}
+	cached, fresh, stale := loadReleaseCache("latest.json")
+	if fresh && len(cached) > 0 {
+		return cached[0], nil
+	}
 
-	req, err :=
-		http.NewRequest(
-			http.MethodGet,
-			latestReleaseAPI,
-			nil,
-		)
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+	}
 
+	req, err := http.NewRequest(
+		http.MethodGet,
+		latestReleaseAPI,
+		nil,
+	)
 	if err != nil {
+		if len(stale) > 0 {
+			return stale[0], nil
+		}
 		return githubRelease{}, err
 	}
 
@@ -142,47 +226,50 @@ func fetchLatestRelease() (githubRelease, error) {
 		"Accept",
 		"application/vnd.github+json",
 	)
-
 	req.Header.Set(
 		"X-GitHub-Api-Version",
 		"2022-11-28",
 	)
 
-	resp, err :=
-		client.Do(req)
-
+	resp, err := client.Do(req)
 	if err != nil {
+		if len(stale) > 0 {
+			return stale[0], nil
+		}
 		return githubRelease{}, err
 	}
 
 	defer resp.Body.Close()
 
-	if resp.StatusCode < 200 ||
-		resp.StatusCode >= 300 {
-
-		return githubRelease{},
-			fmt.Errorf(
-				"github API returned HTTP %d",
-				resp.StatusCode,
-			)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		if len(stale) > 0 {
+			return stale[0], nil
+		}
+		return githubRelease{}, fmt.Errorf(
+			"github API returned HTTP %d",
+			resp.StatusCode,
+		)
 	}
 
 	var release githubRelease
 
-	if err :=
-		json.NewDecoder(
-			resp.Body,
-		).Decode(&release); err != nil {
-
+	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+		if len(stale) > 0 {
+			return stale[0], nil
+		}
 		return githubRelease{}, err
 	}
 
 	if strings.TrimSpace(release.TagName) == "" {
-		return githubRelease{},
-			errors.New(
-				"GitHub release has no tag",
-			)
+		if len(stale) > 0 {
+			return stale[0], nil
+		}
+		return githubRelease{}, errors.New(
+			"GitHub release has no tag",
+		)
 	}
+
+	saveReleaseCache("latest.json", []githubRelease{release})
 
 	return release, nil
 }
