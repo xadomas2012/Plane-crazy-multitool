@@ -1,10 +1,31 @@
 # PC Multitool
 
-A terminal-based engineering calculator and multitool for **Plane Crazy**.
+A modern web app and terminal engineering calculator/multitool for **Plane Crazy**.
 
 **Made by Xad0**
 
 [![Latest Release](https://img.shields.io/github/v/release/xadomas2012/Plane-crazy-multitool?label=latest%20release)](https://github.com/xadomas2012/Plane-crazy-multitool/releases/latest)
+
+## Web App
+
+**Use the web app instantly — no installation required.**
+
+🌐 **[Open PC Multitool](https://xadomas2012.github.io/Plane-crazy-multitool/)**
+
+The web app is responsive and works on desktop, tablet, and mobile browsers.
+
+It includes:
+
+* ⚙️ Gear calculator
+* 🔩 Crank calculator
+* 🛞 Wheel calculator
+* 📈 Dyno calculator and graph
+* 🧱 Piston calculator
+* 📊 Gear reference chart
+* 🎨 Multiple themes and accent colors
+* 💾 Persistent settings in your browser
+* 📱 Mobile-friendly responsive interface
+* 🖼️ Dyno graph PNG export
 
 ## Features
 
