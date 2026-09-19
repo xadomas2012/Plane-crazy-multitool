@@ -3023,15 +3023,112 @@ func (m model) menuMouseIndex(
 	return index, true
 }
 
+// handleMenuMouse gives every renderMenu-based screen the same mouse
+// behavior as its keyboard selection. This keeps mouse geometry in one place
+// instead of duplicating fixed coordinates for each settings screen.
+func (m model) handleMenuMouse(
+	msg tea.MouseClickMsg,
+) (bool, tea.Model, tea.Cmd) {
+	if msg.Button != tea.MouseLeft {
+		return false, m, nil
+	}
+
+	itemCount := 0
+
+	switch m.page {
+	case pageSettings:
+		itemCount = 3
+	case pageUpdates:
+		itemCount = 2
+		if m.updateInfo != nil && isNewerVersion(m.updateInfo.LatestVersion, m.updateInfo.CurrentVersion) {
+			itemCount = 3
+		}
+	case pageCustomize:
+		itemCount = len(m.customizeItems())
+	case pageToolCustomizeSelect:
+		itemCount = 6
+	case pageAppearance, pageTransparency:
+		itemCount = 5
+	case pageThemes:
+		itemCount = 4
+	case pageFlavors:
+		itemCount = 4
+	case pageAccents:
+		itemCount = len(accentKeys)
+	case pageLayout:
+		itemCount = len(m.layoutItems())
+	case pageCalculator:
+		itemCount = 9
+	case pageReset:
+		itemCount = 2
+	default:
+		return false, m, nil
+	}
+
+	index, ok := m.menuMouseIndex(msg, itemCount)
+	if !ok {
+		return false, m, nil
+	}
+
+	enter := tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter})
+
+	switch m.page {
+	case pageSettings:
+		m.settingsIndex = index
+		next, cmd := m.updateSettings(enter)
+		return true, next, cmd
+	case pageUpdates:
+		m.updatesIndex = index
+		next, cmd := m.updateUpdates(enter)
+		return true, next, cmd
+	case pageCustomize:
+		m.customIndex = index
+		next, cmd := m.updateCustomize(enter)
+		return true, next, cmd
+	case pageToolCustomizeSelect:
+		m.customToolIndex = index
+		next, cmd := m.updateToolCustomizeSelect(enter)
+		return true, next, cmd
+	case pageAppearance:
+		m.appearanceIndex = index
+		next, cmd := m.updateAppearance(enter)
+		return true, next, cmd
+	case pageThemes:
+		m.themeIndex = index
+		next, cmd := m.updateThemes(enter)
+		return true, next, cmd
+	case pageFlavors:
+		m.catppuccinFlavorIndex = index
+		next, cmd := m.updateCatppuccinFlavors(enter)
+		return true, next, cmd
+	case pageAccents:
+		m.accentIndex = index
+		next, cmd := m.updateAccents(enter)
+		return true, next, cmd
+	case pageTransparency:
+		m.transparencyIndex = index
+		next, cmd := m.updateTransparency(enter)
+		return true, next, cmd
+	case pageLayout:
+		m.layoutIndex = index
+		next, cmd := m.updateLayout(enter)
+		return true, next, cmd
+	case pageCalculator:
+		m.calculatorIndex = index
+		next, cmd := m.updateCalculator(enter)
+		return true, next, cmd
+	case pageReset:
+		m.resetIndex = index
+		next, cmd := m.updateReset(enter)
+		return true, next, cmd
+	}
+
+	return false, m, nil
+}
+
 func (m model) handleMouse(
 	msg tea.MouseClickMsg,
 ) (tea.Model, tea.Cmd) {
-	f, err := os.OpenFile("/tmp/pc-multitool-mouse.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
-	if err == nil {
-		fmt.Fprintf(f, "X=%d Y=%d BUTTON=%v PAGE=%d MODE=%s\\n", msg.X, msg.Y, msg.Button, m.page, m.effectiveLayout())
-		f.Close()
-	}
-
 	if msg.Button != tea.MouseLeft {
 		return m, nil
 	}
@@ -3091,6 +3188,10 @@ func (m model) handleMouse(
 	}
 	if m.page == pagePiston {
 		return m.handlePistonMouse(msg)
+	}
+
+	if handled, next, cmd := m.handleMenuMouse(msg); handled {
+		return next, cmd
 	}
 
 	if msg.Button !=

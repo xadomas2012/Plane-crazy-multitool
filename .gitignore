@@ -2,6 +2,8 @@
 PC-Gear-Calculator
 PC-Gear-Calculator.exe
 dist/
+node_modules/
+*.tsbuildinfo
 
 # Go
 *.test
